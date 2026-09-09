@@ -389,14 +389,53 @@ $('#prompt').addEventListener('input', e => {
   $('#promptCount').textContent = e.target.value.length;
 });
 
-const offProgress = window.api.onProgress(msg => {
+/* 进度：主进程推 {stage, elapsed}，渲染层再按秒自刷耗时，两路互补 */
+let genRunning = false;
+let genJobId = null;
+let genStart = 0;
+let genElapsedTimer = null;
+let lastStage = '';
+
+function setProgress(cls, stage, elapsed) {
   const el = $('#genProgress');
-  el.className = 'progress working';
-  el.textContent = '⏳ ' + msg;
+  el.className = 'progress' + (cls ? ' ' + cls : '');
+  $('#genStage').textContent = stage || '';
+  $('#genElapsed').textContent = elapsed != null && stage ? `（${elapsed.toFixed(1)}s）` : '';
+}
+
+const offProgress = window.api.onProgress(p => {
+  // 兼容：万一收到旧式字符串
+  const msg = typeof p === 'string' ? { stage: p, elapsed: null } : (p || {});
+  if (msg.stage) lastStage = msg.stage;
+  setProgress('working', '⏳ ' + lastStage, msg.elapsed ?? undefined);
 });
 window.addEventListener('beforeunload', offProgress);
 
+function startElapsedTicker() {
+  stopElapsedTicker();
+  genElapsedTimer = setInterval(() => {
+    if (lastStage) setProgress('working', '⏳ ' + lastStage, (Date.now() - genStart) / 1000);
+  }, 1000);
+}
+function stopElapsedTicker() {
+  if (genElapsedTimer) { clearInterval(genElapsedTimer); genElapsedTimer = null; }
+}
+
+function setGenUI(running) {
+  genRunning = running;
+  $('#btnGenerate').disabled = running;
+  $('#genStop').hidden = !running;
+}
+
+$('#genStop').addEventListener('click', async () => {
+  if (!genJobId) return;
+  $('#genStop').disabled = true;
+  setProgress('working', '⏳ 正在停止…');
+  try { await window.api.cancelGenerate(genJobId); } catch { /* 主进程异常时靠 generate 的 settle 收尾 */ }
+});
+
 $('#btnGenerate').addEventListener('click', async () => {
+  if (genRunning) return;   // 防重复点击
   const prompt = $('#prompt').value.trim();
   if (refAssets.length === 0) return toast('请先添加至少一张参考图', 'err');
   if (!prompt) return toast('请填写提示词', 'err');
@@ -409,28 +448,44 @@ $('#btnGenerate').addEventListener('click', async () => {
     output_format: $('#paramFormat').value
   };
 
-  const btn = $('#btnGenerate');
-  btn.disabled = true;
-  const el = $('#genProgress');
-  el.className = 'progress working';
-  el.textContent = '⏳ 开始…';
+  genJobId = 'job-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
+  genStart = Date.now();
+  lastStage = '开始…';
+  setGenUI(true);
+  setProgress('working', '⏳ 开始…', 0);
+  startElapsedTicker();
   try {
     const res = await window.api.generate({
+      jobId: genJobId,
       refAssetIds: refAssets.map(a => a.id),
       maskAssetId: maskAsset ? maskAsset.id : null,
       prompt,
       params
     });
-    el.className = 'progress';
-    el.textContent = `✅ 完成，本次生成 ${res.images.length} 张图片，已保存到历史素材`;
-    toast(`生成成功，共 ${res.images.length} 张`, 'ok');
-    renderResults(res.images);
+    const secs = ((Date.now() - genStart) / 1000).toFixed(1);
+    if (res && res.canceled) {
+      // 取消不是错误：灰色文案；已落盘的部分照常展示
+      if (res.images && res.images.length) {
+        setProgress('canceled', `⏹ 已取消，本次生成 ${res.images.length} 张已保存`);
+        toast(`已停止，保留 ${res.images.length} 张已生成图片`, 'ok');
+        renderResults(res.images);
+      } else {
+        setProgress('canceled', '⏹ 已取消生成');
+        toast('已取消生成');
+      }
+    } else {
+      setProgress('', `✅ 完成（${secs}s），本次生成 ${res.images.length} 张图片，已保存到历史素材`);
+      toast(`生成成功，共 ${res.images.length} 张`, 'ok');
+      renderResults(res.images);
+    }
   } catch (e) {
-    el.className = 'progress error';
-    el.textContent = '❌ ' + (e.message || e);
+    setProgress('error', '❌ ' + (e.message || e));
     toast('生成失败', 'err');
   } finally {
-    btn.disabled = false;
+    stopElapsedTicker();
+    setGenUI(false);
+    $('#genStop').disabled = false;
+    genJobId = null;
   }
 });
 
@@ -451,14 +506,17 @@ function renderResults(images) {
       </div>
       <div class="thumb-actions">
         <button data-act="preview">预览</button>
+        <button data-act="reuse">🔄 复用</button>
         <button data-act="folder">文件夹</button>
         <button data-act="copy" class="danger">复制路径</button>
       </div>`;
     card.addEventListener('click', e => {
-      const act = e.target.dataset?.act;
+      const btn = e.target.closest('[data-act]');
+      const act = btn ? btn.dataset.act : null;
       if (act === 'folder') return window.api.showItem(a.localPath);
       if (act === 'copy') { window.api.copyText(a.localPath); return toast('本地路径已复制', 'ok'); }
-      openPreview(a);
+      if (act === 'reuse') return reuseParams(a);
+      openPreview(a, images);
     });
     grid.appendChild(card);
   });
@@ -683,6 +741,70 @@ async function deleteSingleAsset(a) {
   loadHistory();
 }
 
+/* ===== 复用参数：把生成图记录的 prompt/params/refs/mask/model 回填调用页 ===== */
+async function reuseParams(a) {
+  if (!a || a.type !== 'generated') return toast('仅生成图可复用参数', 'err');
+  // 始终读最新配置：模型列表可能在设置页被改过而未刷新
+  settingsCfg = await window.api.getConfig();
+  const cfg = settingsCfg;
+
+  // 1. 模型：优先按 modelPath 匹配（模型 id 可能已变），失配则提示重选并停留当前
+  const byPath = (cfg.models || []).find(m => m.modelPath === a.modelPath);
+  const modelOk = !!byPath;
+  if (modelOk && cfg.activeModelId !== byPath.id) {
+    settingsCfg = await window.api.saveConfig({ activeModelId: byPath.id });
+  }
+  if (modelOk) {
+    renderActiveModelSelect(settingsCfg);   // 即使 active 未变也刷新下拉（可能还是页面加载时的旧列表）
+    syncModelActiveState();
+  }
+
+  // 2. 参考图：逐个校验素材记录与本地文件是否还在
+  const refs = [];
+  let missingRefs = 0;
+  for (const r of (a.refImages || [])) {
+    const asset = await window.api.getAsset(r.id);
+    if (asset) refs.push(asset);
+    else missingRefs++;
+  }
+  refAssets = refs;
+  renderRefs();
+
+  // 3. 遮罩
+  maskAsset = null;
+  if (a.maskImage) {
+    const m = await window.api.getAsset(a.maskImage.id);
+    if (m) maskAsset = m;
+  }
+  renderMask();
+
+  // 4. prompt 与参数回填
+  $('#prompt').value = a.prompt || '';
+  $('#promptCount').textContent = (a.prompt || '').length;
+  const setSel = (sel, v) => {
+    if (!v) return;
+    const el = $(sel);
+    if ([...el.options].some(o => o.value === v)) el.value = v;
+  };
+  setSel('#paramSize', a.params?.size);
+  setSel('#paramQuality', a.params?.quality);
+  setSel('#paramBackground', a.params?.background);
+  setSel('#paramFormat', a.params?.output_format);
+  if (a.params?.n) $('#paramN').value = Math.min(10, Math.max(1, Number(a.params.n) || 1));
+
+  // 5. 切到调用页并定位
+  document.querySelector('.nav-item[data-page="generate"]').click();
+  document.querySelector('.page.active').scrollTop = 0;
+  $('#prompt').focus({ preventScroll: true });
+
+  const notes = [];
+  if (!modelOk) notes.push(`原模型「${a.model || a.modelPath || '未知'}」已被删除，请重新选择模型`);
+  if (missingRefs) notes.push(`${missingRefs} 张参考图素材已不存在，未回填`);
+  if (!a.refImages?.length) notes.push('该记录没有参考图，请手动添加');
+  if (notes.length) toast('参数已复用：' + notes.join('；'), 'err');
+  else toast('参数已复用，可直接生成', 'ok');
+}
+
 /* ===== 大图预览 / 详情 ===== */
 function openPreview(a) {
   $('#previewImg').src = imgSrc(a);
@@ -712,17 +834,22 @@ function openPreview(a) {
   }
   meta.innerHTML = rows.join('') + `
     <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">
+      ${a.type === 'generated' ? '<button class="btn small primary" data-act="reuse">🔄 复用参数再来一张</button>' : ''}
+      ${a.type === 'generated' && a.prompt ? '<button class="btn small" data-act="copyprompt">📋 复制提示词</button>' : ''}
       <button class="btn small" data-act="folder2">📁 打开所在文件夹</button>
       <button class="btn small" data-act="copypath">📋 复制本地路径</button>
       ${a.url ? '<button class="btn small" data-act="copyurl">🔗 复制在线 URL</button>' : ''}
     </div>`;
   meta.onclick = e => {
-    const act = e.target.dataset?.act || e.target.closest('[data-act]')?.dataset?.act;
+    const btn = e.target.closest('[data-act]');
+    const act = btn ? btn.dataset.act : null;
     if (!act) return;
     if (act === 'folder' || act === 'folder2') window.api.showItem(a.localPath);
     if (act === 'url') window.api.openExternal(a.url);
     if (act === 'copypath') { window.api.copyText(a.localPath); toast('本地路径已复制', 'ok'); }
     if (act === 'copyurl') { window.api.copyText(a.url); toast('在线 URL 已复制', 'ok'); }
+    if (act === 'copyprompt') { window.api.copyText(a.prompt); toast('提示词已复制', 'ok'); }
+    if (act === 'reuse') { $('#previewModal').hidden = true; reuseParams(a); }
   };
   $('#previewModal').hidden = false;
 }

@@ -179,9 +179,13 @@ textarea { resize: vertical; }
 
 /* ===== 生成栏 ===== */
 .generate-bar { display: flex; align-items: center; gap: 16px; margin-bottom: 16px; }
-.progress { font-size: 13px; color: var(--text-2); }
+.btn.stop { background: var(--danger); border-color: var(--danger); color: #fff; }
+.btn.stop:hover { background: #c9303a; border-color: #c9303a; }
+.progress { font-size: 13px; color: var(--text-2); display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
 .progress.working { color: var(--primary); font-weight: 600; }
 .progress.error { color: var(--danger); white-space: pre-wrap; max-width: 700px; }
+.progress.canceled { color: var(--text-3, #8a90a0); font-weight: 500; }
+.gen-elapsed { font-variant-numeric: tabular-nums; color: inherit; opacity: .8; font-size: 12px; }
 
 /* ===== 页签 ===== */
 .tabs { display: flex; gap: 6px; align-items: center; }

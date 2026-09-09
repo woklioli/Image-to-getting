@@ -20,8 +20,10 @@ contextBridge.exposeInMainWorld('api', {
   importFiles: (paths) => ipcRenderer.invoke('asset:importFiles', paths),
   ensureUploaded: (id) => ipcRenderer.invoke('asset:ensureUploaded', id),
 
-  // 生图
+  // 生图（payload 含 jobId，配合 cancel(jobId) 定向停止）
   generate: (payload) => ipcRenderer.invoke('generate:run', payload),
+  cancelGenerate: (jobId) => ipcRenderer.invoke('generate:cancel', jobId),
+  // 进度 payload：{ stage, elapsed }（elapsed 秒，保留 1 位小数）
   onProgress: (cb) => {
     const listener = (_e, msg) => cb(msg);
     ipcRenderer.on('generate:progress', listener);

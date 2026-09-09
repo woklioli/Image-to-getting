@@ -144,7 +144,8 @@
 
         <div class="generate-bar">
           <button class="btn big primary" id="btnGenerate">🚀 开始生成</button>
-          <div class="progress" id="genProgress"></div>
+          <button class="btn big danger-solid" id="genStop" hidden>⏹ 停止</button>
+          <div class="progress" id="genProgress"><span id="genStage"></span><span id="genElapsed" class="gen-elapsed"></span></div>
         </div>
 
         <div class="card" id="resultCard" style="display:none">
