@@ -15,6 +15,8 @@ contextBridge.exposeInMainWorld('api', {
   listAssets: (type) => ipcRenderer.invoke('asset:list', type),
   getAsset: (id) => ipcRenderer.invoke('asset:get', id),
   deleteAsset: (id) => ipcRenderer.invoke('asset:delete', id),
+  deleteMany: (ids, opts) => ipcRenderer.invoke('asset:deleteMany', ids, opts),
+  thumbnail: (id) => ipcRenderer.invoke('asset:thumbnail', id),
   importFiles: (paths) => ipcRenderer.invoke('asset:importFiles', paths),
   ensureUploaded: (id) => ipcRenderer.invoke('asset:ensureUploaded', id),
 

@@ -33,6 +33,14 @@ function registerIpc() {
   ipcMain.handle('asset:list', (_e, type) => store.listAssets(type));
   ipcMain.handle('asset:get', (_e, id) => store.getAsset(id));
   ipcMain.handle('asset:delete', (_e, id) => store.deleteAsset(id));
+  ipcMain.handle('asset:deleteMany', (_e, ids, opts) => store.deleteAssets(ids, opts || {}));
+
+  // 480px 缩略图（主进程缓存于 images/thumbs/，返回 file 路径；null=调用方回退原图）
+  ipcMain.handle('asset:thumbnail', (_e, id) => {
+    const asset = store.getAsset(id);
+    const p = asset ? store.thumbnailFor(asset) : null;
+    return p && fs.existsSync(p) ? p : null;
+  });
 
   // 导入本地文件为上传素材（复制进应用目录，自动上传图床取 URL）
   ipcMain.handle('asset:importFiles', async (_e, filePaths) => {

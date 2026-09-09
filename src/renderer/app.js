@@ -201,19 +201,48 @@ function renderRefs() {
     const card = document.createElement('div');
     card.className = 'thumb';
     card.innerHTML = `
-      <img class="thumb-img" src="${esc(imgSrc(a))}" alt="" />
+      <img class="thumb-img" data-asset-id="${esc(a.id)}" data-fallback="${esc(imgSrc(a))}" alt="" decoding="async" />
       <span class="thumb-badge">参考图 ${i + 1}</span>
       <button class="thumb-remove" title="移除">✕</button>
       <div class="thumb-body">
         <div class="thumb-name" title="${esc(a.fileName || a.id)}">${esc(a.fileName || shortId(a.id))}</div>
-        <div>${a.type === 'generated' ? '历史生成图' : '上传图'} · ${a.url ? '已上传图床' : '未上传'}</div>
+        <div>${a.type === 'generated' ? '历史生成图' : '上传图'} · ${a.url
+          ? '已上传图床'
+          : '<button class="thumb-retry" data-act="retry" title="该图尚未上传到图床，点击重试上传">☁️ 重试上传</button>'}</div>
       </div>`;
+    const img = card.querySelector('.thumb-img');
+    img.addEventListener('error', e => {
+      if (e.target.dataset.failed) return;
+      e.target.dataset.failed = '1';
+      if (e.target.dataset.fallback) e.target.src = e.target.dataset.fallback;
+    });
+    observeThumb(img);
     card.querySelector('.thumb-remove').addEventListener('click', e => {
       e.stopPropagation();
       refAssets = refAssets.filter(x => x.id !== a.id);
       renderRefs();
     });
-    card.addEventListener('click', () => openPreview(a));
+    const retry = card.querySelector('.thumb-retry');
+    if (retry) retry.addEventListener('click', async e => {
+      e.stopPropagation();
+      retry.disabled = true;
+      retry.textContent = '上传中…';
+      try {
+        const updated = await window.api.ensureUploaded(a.id);   // 此前是死代码，现在接入
+        const cur = refAssets.find(x => x.id === a.id);
+        if (cur) Object.assign(cur, updated);
+        toast('已补传图床', 'ok');
+      } catch (err) {
+        toast('重试上传失败：' + (err.message || err), 'err');
+        retry.disabled = false;
+        retry.textContent = '☁️ 重试上传';
+      }
+      renderRefs();
+    });
+    card.addEventListener('click', e => {
+      if (e.target.closest('[data-act]')) return;
+      openPreview(a);
+    });
     list.appendChild(card);
   });
 }
@@ -308,7 +337,7 @@ function buildPickerCard(a) {
     ? `生成图 · ${esc((a.prompt || '').slice(0, 24) || '无提示词')}`
     : `上传图 · ${fmtSize(a.size)}`;
   card.innerHTML = `
-    <img class="thumb-img" src="${esc(imgSrc(a))}" alt="" />
+    <img class="thumb-img" data-asset-id="${esc(a.id)}" data-fallback="${esc(imgSrc(a))}" alt="" decoding="async" />
     <span class="thumb-badge ${a.type === 'generated' ? 'gen' : ''}">${a.type === 'generated' ? '生成' : '上传'}</span>
     <span class="thumb-check">✓</span>
     <div class="thumb-body">
@@ -316,6 +345,13 @@ function buildPickerCard(a) {
       <div title="${esc(a.id)}">ID: ${esc(shortId(a.id))} · ${fmtTime(a.createdAt)}</div>
       <div>${sub}</div>
     </div>`;
+  const img = card.querySelector('.thumb-img');
+  img.addEventListener('error', e => {
+    if (e.target.dataset.failed) return;
+    e.target.dataset.failed = '1';
+    if (e.target.dataset.fallback) e.target.src = e.target.dataset.fallback;
+  });
+  observeThumb(img);
   card.addEventListener('click', () => {
     if (pickerSelected.has(a.id)) pickerSelected.delete(a.id);
     else pickerSelected.add(a.id);
@@ -428,8 +464,64 @@ function renderResults(images) {
   });
 }
 
+/* ===== 自绘确认弹窗（替代原生 confirm） ===== */
+function askConfirm({ title = '确认', msg, detail = '', fileOptions = false }) {
+  return new Promise(resolve => {
+    const modal = $('#confirmModal');
+    $('#confirmTitle').textContent = title;
+    $('#confirmMsg').textContent = msg;
+    const dEl = $('#confirmDetail');
+    dEl.textContent = detail;
+    dEl.hidden = !detail;
+    $('#confirmOpts').hidden = !fileOptions;
+    if (fileOptions) $('#confirmModal input[name=delOpt][value=record]').checked = true;
+    modal.hidden = false;
+    const done = val => {
+      modal.hidden = true;
+      $('#btnConfirmOk').onclick = null; $('#btnConfirmCancel').onclick = null; $('#btnConfirmX').onclick = null;
+      resolve(val);
+    };
+    $('#btnConfirmOk').onclick = () => {
+      const opt = fileOptions ? $('#confirmModal input[name=delOpt]:checked')?.value : 'files';
+      done({ ok: true, alsoDeleteFiles: opt === 'files' });
+    };
+    $('#btnConfirmCancel').onclick = () => done({ ok: false });
+    $('#btnConfirmX').onclick = () => done({ ok: false });
+  });
+}
+
+/* ===== 缩略图懒加载：可见时才请求 480px 缩略图，失败/无缓存回退原图 ===== */
+const thumbObserver = new IntersectionObserver(entries => {
+  for (const en of entries) {
+    if (!en.isIntersecting) continue;
+    thumbObserver.unobserve(en.target);
+    hydrateThumb(en.target);
+  }
+}, { rootMargin: '200px' });
+
+async function hydrateThumb(img) {
+  const id = img.dataset.assetId;
+  if (!id) return;
+  const fallback = img.dataset.fallback || '';
+  try {
+    const p = await window.api.thumbnail(id);
+    img.src = p ? window.api.toFileUrl(p) : fallback;
+  } catch {
+    if (fallback) img.src = fallback;
+  }
+  img.decode?.().catch(() => {});
+}
+function observeThumb(img) { thumbObserver.observe(img); }
+
 /* ===== 历史素材页 ===== */
 let historyTab = 'upload';
+let historyAll = [];          // 当前分类的全部素材（已按搜索/排序过滤）
+let historyRendered = 0;      // 已渲染数量
+const PAGE_SIZE = 60;
+let batchMode = false;
+let batchSelected = new Set();
+let historySearchTimer = null;
+
 $$('#page-history [data-htab]').forEach(btn => {
   btn.addEventListener('click', () => {
     historyTab = btn.dataset.htab;
@@ -439,32 +531,107 @@ $$('#page-history [data-htab]').forEach(btn => {
 });
 $('#btnRefreshHistory').addEventListener('click', loadHistory);
 
+$('#historySearch').addEventListener('input', () => {
+  clearTimeout(historySearchTimer);
+  historySearchTimer = setTimeout(() => renderHistoryPage(true), 250);
+});
+$('#historySort').addEventListener('change', () => renderHistoryPage(true));
+
+$('#btnBatchMode').addEventListener('click', () => {
+  batchMode = !batchMode;
+  batchSelected.clear();
+  $('#batchBar').hidden = !batchMode;
+  $('#btnBatchMode').classList.toggle('primary', batchMode);
+  updateBatchCount();
+  renderHistoryPage(true);
+});
+$('#btnBatchExit').addEventListener('click', () => $('#btnBatchMode').click());
+$('#btnBatchSelectAll').addEventListener('click', () => {
+  historyAll.slice(0, historyRendered).forEach(a => batchSelected.add(a.id));
+  $$('#historyGrid .thumb').forEach(c => c.classList.add('selected'));
+  updateBatchCount();
+});
+$('#btnBatchDelete').addEventListener('click', async () => {
+  if (!batchSelected.size) return toast('请先勾选要删除的素材', 'err');
+  const r = await askConfirm({
+    title: '批量删除素材',
+    msg: `确定删除选中的 ${batchSelected.size} 项素材吗？`,
+    detail: '删除后不可恢复。',
+    fileOptions: true
+  });
+  if (!r.ok) return;
+  await window.api.deleteMany([...batchSelected], { alsoDeleteFiles: r.alsoDeleteFiles });
+  toast(`已删除 ${batchSelected.size} 项${r.alsoDeleteFiles ? '（含本地文件）' : ''}`, 'ok');
+  batchSelected.clear();
+  loadHistory();
+});
+
+function updateBatchCount() {
+  $('#batchCount').textContent = `已选 ${batchSelected.size} 项`;
+}
+
 async function loadHistory() {
   const grid = $('#historyGrid');
   grid.innerHTML = '<div class="empty-tip">加载中…</div>';
-  const assets = await window.api.listAssets(historyTab);
-  grid.innerHTML = '';
-  if (!assets.length) {
-    grid.innerHTML = `<div class="empty-tip">暂无${historyTab === 'upload' ? '上传' : '生成'}素材</div>`;
+  historyAll = await window.api.listAssets(historyTab);
+  renderHistoryPage(true);
+}
+
+function filteredHistoryAssets() {
+  const q = $('#historySearch').value.trim().toLowerCase();
+  let list = historyAll;
+  if (q) {
+    list = list.filter(a =>
+      (a.prompt || '').toLowerCase().includes(q) ||
+      (a.fileName || '').toLowerCase().includes(q) ||
+      (a.id || '').toLowerCase().includes(q));
+  }
+  const sort = $('#historySort').value;
+  list = [...list];
+  if (sort === 'time-asc') list.sort((a, b) => (a.createdAt || '').localeCompare(b.createdAt || ''));
+  else if (sort === 'name-asc') list.sort((a, b) => ((a.fileName || a.prompt || a.id) + '').localeCompare((b.fileName || b.prompt || b.id) + ''));
+  else list.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+  return list;
+}
+
+function renderHistoryPage(reset) {
+  const grid = $('#historyGrid');
+  if (reset) { grid.innerHTML = ''; historyRendered = 0; }
+  const list = filteredHistoryAssets();
+  if (!list.length) {
+    const q = $('#historySearch').value.trim();
+    grid.innerHTML = `<div class="empty-tip">${q ? '没有匹配「' + esc(q) + '」的素材' : '暂无' + (historyTab === 'upload' ? '上传' : '生成') + '素材'}</div>`;
+    $('#loadSentinel').hidden = true;
     return;
   }
-  assets.forEach(a => grid.appendChild(buildHistoryCard(a)));
+  const next = list.slice(historyRendered, historyRendered + PAGE_SIZE);
+  next.forEach(a => grid.appendChild(buildHistoryCard(a)));
+  historyRendered += next.length;
+  $('#loadSentinel').hidden = historyRendered >= list.length;
 }
+
+/* 滚动到底自动加载下一页 */
+const pageEl = $('#page-history');
+$('#loadSentinel') && new IntersectionObserver(entries => {
+  if (entries.some(e => e.isIntersecting)) renderHistoryPage(false);
+}, { root: document.querySelector('.main'), rootMargin: '300px' }).observe($('#loadSentinel'));
 
 function buildHistoryCard(a) {
   const card = document.createElement('div');
-  card.className = 'thumb';
+  card.className = 'thumb' + (batchMode && batchSelected.has(a.id) ? ' selected' : '');
   const isGen = a.type === 'generated';
+  const promptShort = esc((a.prompt || '').slice(0, 40)) || '—';
   const sub = isGen
-    ? `<div title="${esc(a.prompt || '')}">提示词：${esc((a.prompt || '').slice(0, 40)) || '—'}</div>
-       <div>参考图 ${(a.refImages || []).length} 张 · ${esc(a.params?.size || '')} · ${esc(a.params?.quality || '')}</div>`
-    : `<div>${esc(a.fileName || '')}</div><div>${fmtSize(a.size)} · ${a.url ? '已上传图床' : '仅本地'}</div>`;
+    ? `<div class="t-sub" title="${esc(a.prompt || '')}">提示词：${promptShort}</div>
+       <div class="t-meta">参考图 ${(a.refImages || []).length} 张 · ${esc(a.params?.size || '')} · ${esc(a.params?.quality || '')}</div>`
+    : `<div class="t-sub">${esc(a.fileName || '')}</div><div class="t-meta">${fmtSize(a.size)} · ${a.url ? '已上传图床' : '仅本地'}</div>`;
   card.innerHTML = `
-    <img class="thumb-img" src="${esc(imgSrc(a))}" alt="" />
+    <img class="thumb-img" data-asset-id="${esc(a.id)}" data-fallback="${esc(imgSrc(a))}" alt="" decoding="async" />
     <span class="thumb-badge ${isGen ? 'gen' : ''}">${isGen ? '生成' : '上传'}</span>
+    ${batchMode ? '<span class="thumb-check">✓</span>' : ''}
     <div class="thumb-body">
       <div class="thumb-name" title="${esc(a.id)}">ID: ${esc(shortId(a.id))}</div>
-      <div>${fmtTime(a.createdAt)}</div>
+      <div class="t-meta">${fmtTime(a.createdAt)}</div>
       ${sub}
     </div>
     <div class="thumb-actions">
@@ -472,19 +639,48 @@ function buildHistoryCard(a) {
       <button data-act="folder">文件夹</button>
       <button data-act="del" class="danger">删除</button>
     </div>`;
+  card.querySelector('.thumb-img').addEventListener('error', e => {
+    const img = e.target;
+    if (!img.src || img.dataset.failed) return;
+    img.dataset.failed = '1';
+    if (img.dataset.fallback) img.src = img.dataset.fallback;
+  });
+  observeThumb(card.querySelector('.thumb-img'));
   card.addEventListener('click', async e => {
-    const act = e.target.dataset?.act;
-    if (act === 'folder') return window.api.showItem(a.localPath);
-    if (act === 'del') {
-      if (!confirm(`确定删除该素材记录吗？\n（会同时删除本地图片文件：${a.localPath}）`)) return;
-      await window.api.deleteAsset(a.id);
-      toast('已删除', 'ok');
-      loadHistory();
+    if (batchMode) {
+      // 批量模式：点卡片勾选；点操作按钮走按钮语义
+      const btn = e.target.closest('[data-act]');
+      if (btn) {
+        e.stopPropagation();
+        if (btn.dataset.act === 'del') return deleteSingleAsset(a);
+        if (btn.dataset.act === 'folder') return window.api.showItem(a.localPath);
+        return openPreview(a);
+      }
+      if (batchSelected.has(a.id)) batchSelected.delete(a.id); else batchSelected.add(a.id);
+      card.classList.toggle('selected', batchSelected.has(a.id));
+      updateBatchCount();
       return;
     }
+    const btn = e.target.closest('[data-act]');
+    const act = btn ? btn.dataset.act : null;
+    if (act === 'folder') return window.api.showItem(a.localPath);
+    if (act === 'del') return deleteSingleAsset(a);
     openPreview(a);
   });
   return card;
+}
+
+async function deleteSingleAsset(a) {
+  const r = await askConfirm({
+    title: '删除素材',
+    msg: '确定删除该素材吗？',
+    detail: a.localPath ? `文件：${a.localPath}` : '',
+    fileOptions: true
+  });
+  if (!r.ok) return;
+  await window.api.deleteMany([a.id], { alsoDeleteFiles: r.alsoDeleteFiles });
+  toast('已删除', 'ok');
+  loadHistory();
 }
 
 /* ===== 大图预览 / 详情 ===== */

@@ -160,12 +160,28 @@
           <div class="tabs">
             <button class="tab active" data-htab="upload">上传图片</button>
             <button class="tab" data-htab="generated">生成图片</button>
-            <button class="btn small" id="btnRefreshHistory" style="margin-left:auto">🔄 刷新</button>
+            <button class="btn small" id="btnBatchMode" style="margin-left:auto">☑️ 批量管理</button>
+            <button class="btn small" id="btnRefreshHistory">🔄 刷新</button>
           </div>
+          <div class="history-toolbar">
+            <input type="search" id="historySearch" placeholder="搜索提示词 / 文件名 / ID…" />
+            <select id="historySort" class="history-sort">
+              <option value="time-desc">最新在前</option>
+              <option value="time-asc">最早在前</option>
+              <option value="name-asc">名称 / 提示词 A→Z</option>
+            </select>
+          </div>
+        </div>
+        <div class="batch-bar" id="batchBar" hidden>
+          <span class="batch-count" id="batchCount">已选 0 项</span>
+          <button class="btn small" id="btnBatchSelectAll">全选本页</button>
+          <button class="btn small danger-solid" id="btnBatchDelete">🗑 删除所选</button>
+          <button class="btn small ghost" id="btnBatchExit">退出批量</button>
         </div>
         <div class="thumb-grid large" id="historyGrid">
           <div class="empty-tip">暂无素材</div>
         </div>
+        <div class="load-sentinel" id="loadSentinel" hidden></div>
       </section>
 
       <!-- ===== 设置页 ===== -->
@@ -236,6 +252,28 @@
         <span class="hint" id="pickerCount">已选 0 张</span>
         <button class="btn" data-close="pickerModal">取消</button>
         <button class="btn primary" id="btnPickerConfirm">确定添加</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 通用确认弹窗（删除素材等，替代原生 confirm） -->
+  <div class="modal-mask" id="confirmModal" hidden>
+    <div class="modal narrow">
+      <div class="modal-head">
+        <h2 id="confirmTitle">确认</h2>
+        <button class="modal-close" id="btnConfirmX" aria-label="关闭">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="confirm-msg" id="confirmMsg"></div>
+        <div class="confirm-detail" id="confirmDetail" hidden></div>
+        <div class="confirm-opts" id="confirmOpts">
+          <label class="confirm-opt"><input type="radio" name="delOpt" value="record" checked /><span>仅删除记录（保留本地图片文件）</span></label>
+          <label class="confirm-opt"><input type="radio" name="delOpt" value="files" /><span>删除记录并删除本地图片文件</span></label>
+        </div>
+      </div>
+      <div class="modal-foot">
+        <button class="btn" id="btnConfirmCancel">取消</button>
+        <button class="btn danger-solid" id="btnConfirmOk">确定</button>
       </div>
     </div>
   </div>

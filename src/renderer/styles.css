@@ -241,3 +241,40 @@ textarea { resize: vertical; }
 }
 .toast.err { background: var(--danger); }
 .toast.ok { background: var(--ok); }
+
+/* ===== 历史页工具栏 / 批量操作 ===== */
+.history-toolbar { display: flex; gap: 10px; margin-top: 12px; }
+.history-toolbar input[type="search"] { flex: 1; max-width: 420px; }
+.history-sort { width: auto; min-width: 150px; }
+.batch-bar {
+  display: flex; align-items: center; gap: 10px;
+  background: #eef1fd; border: 1px solid #cdd6f9; border-radius: 8px;
+  padding: 8px 12px; margin-bottom: 12px;
+}
+.batch-count { font-size: 13px; font-weight: 600; color: var(--primary-dark); margin-right: auto; }
+.load-sentinel { height: 1px; }
+.danger-solid { background: var(--danger); border-color: var(--danger); color: #fff; }
+.danger-solid:hover { background: #c9303a; border-color: #c9303a; }
+
+/* 卡片文字层级（历史卡片三级信息） */
+.t-sub { color: var(--text-2); }
+.t-meta { color: #8a91a3; font-size: 11px; }
+
+/* 参考图「重试上传」角标按钮 */
+.thumb-retry {
+  border: 1px solid var(--border); background: #fff7ed; color: #b45309;
+  border-radius: 6px; font-size: 11px; padding: 1px 6px; cursor: pointer;
+}
+.thumb-retry:hover { border-color: #b45309; }
+.thumb-retry:disabled { opacity: .6; cursor: wait; }
+
+/* ===== 确认弹窗 ===== */
+.modal.narrow { width: 460px; }
+.confirm-msg { font-size: 14px; line-height: 1.6; }
+.confirm-detail {
+  margin-top: 8px; font-size: 12px; color: var(--text-2);
+  word-break: break-all; background: #f7f8fa; border-radius: 6px; padding: 8px 10px;
+}
+.confirm-opts { margin-top: 12px; display: flex; flex-direction: column; gap: 8px; }
+.confirm-opt { display: flex; align-items: center; gap: 8px; font-size: 13px; cursor: pointer; }
+.confirm-opt input { width: auto; }
