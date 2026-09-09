@@ -84,19 +84,37 @@ function renderModelList() {
           <input type="password" data-f="apiKey" value="${esc(m.apiKey || '')}" placeholder="留空使用全局 API Key" />
         </label>
       </div>`;
+    // 输入实时回写内存：任何列表重建都不会吞掉未保存的编辑
+    item.querySelectorAll('[data-f]').forEach(inp => {
+      inp.addEventListener('input', () => {
+        const cur = (settingsCfg.models || []).find(x => x.id === m.id);
+        if (cur) cur[inp.dataset.f] = inp.value;
+      });
+    });
     item.querySelector('.model-del').addEventListener('click', () => {
       if (settingsCfg.models.length <= 1) return toast('至少保留一个模型', 'err');
       if (!confirm(`确定删除模型「${m.name || m.modelPath}」吗？`)) return;
       settingsCfg.models = settingsCfg.models.filter(x => x.id !== m.id);
       if (settingsCfg.activeModelId === m.id) settingsCfg.activeModelId = settingsCfg.models[0].id;
       renderModelList();
+      renderActiveModelSelect(settingsCfg);
     });
     item.querySelector('input[type=radio]').addEventListener('change', () => {
       settingsCfg.activeModelId = m.id;
-      renderModelList();
+      syncModelActiveState();   // 只更新选中态，不重建 input（旧版在这里丢过用户的输入）
       renderActiveModelSelect(settingsCfg);
     });
     wrap.appendChild(item);
+  });
+}
+
+/* 仅同步各卡片的高亮与 radio 选中态，不触碰输入框的值 */
+function syncModelActiveState() {
+  $$('#modelList .model-item').forEach(it => {
+    const on = it.dataset.id === settingsCfg.activeModelId;
+    it.classList.toggle('active', on);
+    const r = it.querySelector('input[type=radio]');
+    if (r) r.checked = on;
   });
 }
 
@@ -161,6 +179,7 @@ function renderActiveModelSelect(cfg) {
 }
 $('#activeModel')?.addEventListener('change', async e => {
   settingsCfg = await window.api.saveConfig({ activeModelId: e.target.value });
+  syncModelActiveState();   // 设置页 radio 同步跟随，避免保存时用过期选中态把模型改回去
   toast('已切换当前模型', 'ok');
 });
 $('#btnGoSettings')?.addEventListener('click', () => {
