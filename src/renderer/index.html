@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self'; img-src 'self' file: data: https: http:; style-src 'self' 'unsafe-inline'; script-src 'self';" />
+  <title>AI 出图平台</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="app">
+    <!-- 侧边栏 -->
+    <aside class="sidebar">
+      <div class="logo">
+        <div class="logo-mark">🎨</div>
+        <div class="logo-text">
+          <div class="logo-title">AI 出图平台</div>
+          <div class="logo-sub">GPT Image 图片编辑</div>
+        </div>
+      </div>
+      <nav class="nav">
+        <button class="nav-item active" data-page="generate">
+          <span class="nav-icon">✨</span> 调用模型
+        </button>
+        <button class="nav-item" data-page="history">
+          <span class="nav-icon">🗂️</span> 历史素材
+        </button>
+        <button class="nav-item" data-page="settings">
+          <span class="nav-icon">⚙️</span> 设置
+        </button>
+      </nav>
+      <div class="sidebar-footer">数据保存在本机应用目录</div>
+    </aside>
+
+    <!-- 主区域 -->
+    <main class="main">
+      <!-- ===== 调用模型页 ===== -->
+      <section class="page active" id="page-generate">
+        <div class="page-head">
+          <h1>调用模型</h1>
+          <p class="page-desc">上传或选择参考图，填写提示词，调用渠道生图接口。生成结果自动保存到本地并记入历史素材。</p>
+        </div>
+
+        <div class="card">
+          <div class="card-title">当前模型
+            <span class="hint">在「设置」中添加/管理多个模型</span>
+          </div>
+          <div class="ref-toolbar" style="margin-bottom:0">
+            <select id="activeModel" style="max-width:420px"></select>
+            <button class="btn small" id="btnGoSettings">⚙️ 管理模型</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-title">
+            参考图 <span class="req">*</span>
+            <span class="hint">支持多张（接口将以图片数组提交），支持 PNG / JPEG / WebP / GIF</span>
+          </div>
+          <div class="ref-toolbar">
+            <button class="btn primary" id="btnUploadRef">📤 上传图片</button>
+            <button class="btn" id="btnPickHistory">🗂️ 从历史素材选择</button>
+            <button class="btn ghost" id="btnClearRefs">清空</button>
+          </div>
+          <div class="thumb-grid" id="refList">
+            <div class="empty-tip" id="refEmpty">尚未添加参考图，点击上方按钮上传或从历史选择</div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-title">
+            遮罩图 <span class="hint">可选，须为带 alpha 通道的 PNG，透明区域表示需要编辑的位置</span>
+          </div>
+          <div class="ref-toolbar">
+            <button class="btn" id="btnPickMask">选择遮罩图</button>
+            <button class="btn ghost" id="btnClearMask">清除遮罩</button>
+          </div>
+          <div class="thumb-grid" id="maskList">
+            <div class="empty-tip" id="maskEmpty">未选择遮罩图（可选）</div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-title">提示词 <span class="req">*</span></div>
+          <textarea id="prompt" rows="4" maxlength="32000"
+            placeholder="描述所需的编辑效果，例如：把背景换成海边日落，保持人物不变…（最多 32000 字符）"></textarea>
+          <div class="char-count"><span id="promptCount">0</span> / 32000</div>
+        </div>
+
+        <div class="card">
+          <div class="card-title">生成参数</div>
+          <div class="form-grid">
+            <label class="field">
+              <span>尺寸 size</span>
+              <select id="paramSize">
+                <option value="auto">auto（自动）</option>
+                <option value="1024x1024" selected>1024x1024</option>
+                <option value="1024x1536">1024x1536（竖）</option>
+                <option value="1536x1024">1536x1024（横）</option>
+                <option value="1024x2048">1024x2048（竖长）</option>
+                <option value="2048x1024">2048x1024（横长）</option>
+                <option value="2048x2048">2048x2048</option>
+                <option value="688x2048">688x2048</option>
+                <option value="880x2048">880x2048</option>
+                <option value="1152x2048">1152x2048</option>
+                <option value="1360x2048">1360x2048</option>
+                <option value="1536x2048">1536x2048</option>
+                <option value="2048x688">2048x688</option>
+                <option value="2048x880">2048x880</option>
+                <option value="2048x1152">2048x1152</option>
+                <option value="2048x1360">2048x1360</option>
+                <option value="2048x1536">2048x1536</option>
+                <option value="2160x3840">2160x3840</option>
+                <option value="3840x2160">3840x2160</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>质量 quality</span>
+              <select id="paramQuality">
+                <option value="low" selected>low（低，快且省）</option>
+                <option value="medium">medium（中）</option>
+                <option value="high">high（高，慢且贵）</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>数量 n（1-10）</span>
+              <input type="number" id="paramN" value="1" min="1" max="10" />
+            </label>
+            <label class="field">
+              <span>背景 background</span>
+              <select id="paramBackground">
+                <option value="auto" selected>auto（自动检测）</option>
+                <option value="opaque">opaque（不透明）</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>输出格式 output_format</span>
+              <select id="paramFormat">
+                <option value="png" selected>png</option>
+                <option value="jpeg">jpeg</option>
+              </select>
+            </label>
+          </div>
+        </div>
+
+        <div class="generate-bar">
+          <button class="btn big primary" id="btnGenerate">🚀 开始生成</button>
+          <div class="progress" id="genProgress"></div>
+        </div>
+
+        <div class="card" id="resultCard" style="display:none">
+          <div class="card-title">生成结果 <span class="hint" id="resultMeta"></span></div>
+          <div class="thumb-grid large" id="resultList"></div>
+        </div>
+      </section>
+
+      <!-- ===== 历史素材页 ===== -->
+      <section class="page" id="page-history">
+        <div class="page-head">
+          <h1>历史素材</h1>
+          <div class="tabs">
+            <button class="tab active" data-htab="upload">上传图片</button>
+            <button class="tab" data-htab="generated">生成图片</button>
+            <button class="btn small" id="btnRefreshHistory" style="margin-left:auto">🔄 刷新</button>
+          </div>
+        </div>
+        <div class="thumb-grid large" id="historyGrid">
+          <div class="empty-tip">暂无素材</div>
+        </div>
+      </section>
+
+      <!-- ===== 设置页 ===== -->
+      <section class="page" id="page-settings">
+        <div class="page-head">
+          <h1>设置</h1>
+          <p class="page-desc">配置全局渠道与多个模型。模型可单独填写 Base URL / API Key，留空则使用全局值。配置保存在本机，不会上传。</p>
+        </div>
+
+        <div class="card form-card">
+          <div class="card-title">🌐 全局渠道配置</div>
+          <label class="field">
+            <span>全局渠道 Base URL（模型留空时使用）</span>
+            <input type="text" id="cfgBaseUrl" placeholder="https://api.highwayapi.ai" />
+          </label>
+          <label class="field">
+            <span>全局 API Key（模型留空时使用）</span>
+            <input type="password" id="cfgApiKey" placeholder="sk-..." />
+          </label>
+          <label class="field">
+            <span>图片上传接口地址</span>
+            <input type="text" id="cfgUploadUrl" placeholder="https://tmpfile.link/api/upload" />
+            <small class="hint">参考图先上传到此图床换取 URL，再提交给生图接口</small>
+          </label>
+        </div>
+
+        <div class="card">
+          <div class="card-title">
+            🤖 模型列表
+            <span class="hint">单选一个为当前使用模型；每个模型可指向不同渠道/密钥</span>
+          </div>
+          <div id="modelList"></div>
+          <div class="ref-toolbar" style="margin-top:12px">
+            <button class="btn" id="btnAddModel">➕ 添加模型</button>
+          </div>
+        </div>
+
+        <div class="card form-card">
+          <div class="field">
+            <span>本地数据目录</span>
+            <div class="static-path" id="dataDir">—</div>
+          </div>
+          <div class="ref-toolbar">
+            <button class="btn primary" id="btnSaveConfig">💾 保存配置</button>
+            <button class="btn" id="btnOpenDataDir">📁 打开数据目录</button>
+            <span class="save-tip" id="cfgTip"></span>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- 历史素材选择弹窗 -->
+  <div class="modal-mask" id="pickerModal" hidden>
+    <div class="modal">
+      <div class="modal-head">
+        <h2>选择历史素材</h2>
+        <button class="modal-close" data-close="pickerModal">✕</button>
+      </div>
+      <div class="tabs">
+        <button class="tab active" data-ptab="upload">上传图片</button>
+        <button class="tab" data-ptab="generated">生成图片</button>
+      </div>
+      <div class="modal-body">
+        <div class="thumb-grid" id="pickerGrid"></div>
+      </div>
+      <div class="modal-foot">
+        <span class="hint" id="pickerCount">已选 0 张</span>
+        <button class="btn" data-close="pickerModal">取消</button>
+        <button class="btn primary" id="btnPickerConfirm">确定添加</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 大图预览弹窗 -->
+  <div class="modal-mask" id="previewModal" hidden>
+    <div class="modal wide">
+      <div class="modal-head">
+        <h2 id="previewTitle">预览</h2>
+        <button class="modal-close" data-close="previewModal">✕</button>
+      </div>
+      <div class="modal-body preview-body">
+        <img id="previewImg" alt="预览" />
+        <div class="preview-meta" id="previewMeta"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- toast -->
+  <div class="toast" id="toast" hidden></div>
+
+  <script src="app.js"></script>
+</body>
+</html>

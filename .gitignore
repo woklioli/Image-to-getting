@@ -1,0 +1,5 @@
+node_modules/
+dist/
+*.blockmap
+.DS_Store
+.claude/settings.local.json

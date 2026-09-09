@@ -1,0 +1,50 @@
+{
+  "name": "ai-image-studio",
+  "version": "1.0.0",
+  "description": "接口 AI 出图平台桌面端 - 配置渠道、上传素材、调用 GPT Image 图片编辑接口",
+  "main": "src/main/main.js",
+  "scripts": {
+    "start": "electron .",
+    "icon": "node tools/make-icon.js",
+    "dist:win": "electron-builder --win --x64",
+    "dist:mac": "electron-builder --mac",
+    "dist": "electron-builder"
+  },
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "^33.2.0",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "com.aiimage.studio",
+    "productName": "AI出图平台",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "src/**/*",
+      "assets/**/*"
+    ],
+    "win": {
+      "icon": "assets/icon.png",
+      "target": [
+        { "target": "nsis", "arch": ["x64"] },
+        { "target": "portable", "arch": ["x64"] },
+        { "target": "zip", "arch": ["x64"] }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "AI出图平台"
+    },
+    "mac": {
+      "icon": "assets/icon.png",
+      "target": ["dmg", "zip"]
+    }
+  }
+}
