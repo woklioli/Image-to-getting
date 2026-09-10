@@ -10,7 +10,8 @@ const DEFAULT_CONFIG = {
   models: [
     { id: 'model-default', name: 'GPT Image 2 编辑', baseUrl: '', modelPath: 'v3/gpt-image-2-edit', apiKey: '' }
   ],
-  activeModelId: 'model-default'
+  activeModelId: 'model-default',
+  theme: 'system'          // system | light | dark
 };
 
 let userDataDir = null;
@@ -18,6 +19,7 @@ let configPath = null;
 let dbPath = null;
 let uploadsDir = null;
 let generatedDir = null;
+let thumbsDir = null;
 
 function init() {
   userDataDir = app.getPath('userData');
@@ -25,12 +27,22 @@ function init() {
   dbPath = path.join(userDataDir, 'db.json');
   uploadsDir = path.join(userDataDir, 'images', 'uploads');
   generatedDir = path.join(userDataDir, 'images', 'generated');
+  thumbsDir = path.join(userDataDir, 'images', 'thumbs');
   fs.mkdirSync(uploadsDir, { recursive: true });
   fs.mkdirSync(generatedDir, { recursive: true });
+  fs.mkdirSync(thumbsDir, { recursive: true });
 }
 
 function paths() {
-  return { userDataDir, uploadsDir, generatedDir };
+  return { userDataDir, uploadsDir, generatedDir, thumbsDir };
+}
+
+function thumbPathFor(id) {
+  return path.join(thumbsDir, `${id}.jpg`);
+}
+
+function removeThumb(id) {
+  try { fs.unlinkSync(thumbPathFor(id)); } catch { /* 无缩略图 */ }
 }
 
 function readJson(file, fallback) {
@@ -67,6 +79,7 @@ function getConfig() {
     apiKey: m.apiKey ?? ''
   }));
   if (!cfg.models.some(m => m.id === cfg.activeModelId)) cfg.activeModelId = cfg.models[0].id;
+  if (!['system', 'light', 'dark'].includes(cfg.theme)) cfg.theme = 'system';
   return cfg;
 }
 
@@ -157,18 +170,72 @@ function updateAsset(id, patch) {
 }
 
 function deleteAsset(id) {
+  return deleteAssets([id]).length > 0;
+}
+
+/**
+ * 批量删除素材（一次读一次写，替代逐个 deleteAsset 的 N 次全量写盘）。
+ * alsoDeleteFiles=false 时仅删记录、保留本地图片文件。
+ * 返回被删除记录的 localPath 列表。
+ */
+function deleteAssets(ids, { alsoDeleteFiles = true } = {}) {
   const db = getDb();
-  const idx = db.assets.findIndex(a => a.id === id);
-  if (idx === -1) return false;
-  const [record] = db.assets.splice(idx, 1);
+  const idSet = new Set(ids || []);
+  const removed = [];
+  db.assets = db.assets.filter(a => {
+    if (idSet.has(a.id)) { removed.push(a); return false; }
+    return true;
+  });
+  if (!removed.length) return [];
   saveDb(db);
-  // 仅删除生成图/上传图文件本身；参考图不删（可能被其它记录引用）
-  try {
-    if (record.localPath && fs.existsSync(record.localPath)) fs.unlinkSync(record.localPath);
-  } catch (e) {
-    console.error('删除文件失败:', e.message);
+  for (const record of removed) {
+    removeThumb(record.id);
+    // 仅删除生成图/上传图文件本身；仅当同时删文件时
+    if (alsoDeleteFiles) {
+      try {
+        if (record.localPath && fs.existsSync(record.localPath)) fs.unlinkSync(record.localPath);
+      } catch (e) {
+        console.error('删除文件失败:', e.message);
+      }
+    }
   }
-  return true;
+  return removed.map(a => a.localPath);
+}
+
+/**
+ * 为素材生成/复用 480px 宽缩略图，返回缩略图文件路径；失败返回 null（调用方回退原图）。
+ * 缓存键 = 文件 mtimeMs + size：原图更新即失效。
+ */
+function thumbnailFor(asset) {
+  try {
+    if (!asset || !asset.localPath || !fs.existsSync(asset.localPath)) return null;
+    const stat = fs.statSync(asset.localPath);
+    const thumb = thumbPathFor(asset.id);
+    let fresh = false;
+    try {
+      const ts = fs.statSync(thumb);
+      const stampPath = thumb + '.stamp';
+      const stamp = `${Math.round(stat.mtimeMs)}:${stat.size}`;
+      const old = fs.readFileSync(stampPath, 'utf-8');
+      fresh = old === stamp && ts.mtimeMs >= stat.mtimeMs;
+    } catch { /* 无缓存 */ }
+    if (fresh) return thumb;
+    const { nativeImage } = require('electron');
+    const img = nativeImage.createFromPath(asset.localPath);
+    if (img.isEmpty()) return null;
+    const { width, height } = img.getSize();
+    const out = width > 480
+      ? img.resize({ width: 480, quality: 'good' })
+      : img;
+    const jpeg = out.toJPEG(80);
+    if (!jpeg || !jpeg.length) return null;
+    fs.writeFileSync(thumb, jpeg);
+    fs.writeFileSync(thumb + '.stamp', `${Math.round(stat.mtimeMs)}:${stat.size}`);
+    return thumb;
+  } catch (e) {
+    console.error('生成缩略图失败:', e.message);
+    return null;
+  }
 }
 
 module.exports = {
@@ -181,6 +248,9 @@ module.exports = {
   addAsset,
   updateAsset,
   deleteAsset,
+  deleteAssets,
+  thumbnailFor,
+  removeThumb,
   importUploadedFile,
   saveGeneratedBuffer,
   newId

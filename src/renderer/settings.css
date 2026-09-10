@@ -1,0 +1,17 @@
+/* ===== 设置页：模型列表 ===== */
+.model-item {
+  border: 1px solid var(--border-1); border-radius: var(--r-lg);
+  padding: 14px; margin-bottom: 10px; background: var(--bg-raised);
+  transition: border-color 0.15s, background 0.15s;
+}
+.model-item.active { border-color: var(--accent); background: var(--accent-soft); }
+.model-head { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+.model-head input[type="radio"] { width: auto; flex-shrink: 0; cursor: pointer; accent-color: var(--accent); }
+.model-name-input { flex: 1; font-weight: 600; }
+.model-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.model-fields .field.full { grid-column: 1 / -1; }
+.model-del { flex-shrink: 0; }
+
+/* 外观：主题分段控件所在卡片 */
+.appearance-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+.appearance-row .field { gap: 2px; }

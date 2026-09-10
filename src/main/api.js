@@ -8,23 +8,63 @@ function buildEndpoint(baseUrl, modelPath) {
   return `${base}/${p}`;
 }
 
-/** multipart/form-data 上传文件到图床，返回图片可访问 URL（失败自动重试 3 次） */
-async function uploadFile(localPath, uploadUrl) {
+/** 把外部取消 signal（可空）与内部超时合并：任一触发即 abort */
+function composeSignal(outerSignal, timeoutMs) {
+  const ctrl = new AbortController();
+  const onOuterAbort = () => ctrl.abort();
+  if (outerSignal) {
+    if (outerSignal.aborted) return { signal: ctrl.signal, cleanup() {} };
+    outerSignal.addEventListener('abort', onOuterAbort);
+  }
+  const timer = timeoutMs ? setTimeout(() => ctrl.abort(), timeoutMs) : null;
+  return {
+    signal: ctrl.signal,
+    cleanup() {
+      if (timer) clearTimeout(timer);
+      if (outerSignal) outerSignal.removeEventListener('abort', onOuterAbort);
+    }
+  };
+}
+
+/** 可被取消打断的等待；signal 触发时立即 reject */
+function sleep(ms, signal) {
+  return new Promise((resolve, reject) => {
+    const t = setTimeout(() => {
+      if (signal) signal.removeEventListener('abort', onAbort);
+      resolve();
+    }, ms);
+    function onAbort() {
+      clearTimeout(t);
+      reject(new Error('用户已取消'));
+    }
+    if (signal) {
+      if (signal.aborted) { clearTimeout(t); onAbort(); return; }
+      signal.addEventListener('abort', onAbort, { once: true });
+    }
+  });
+}
+
+/**
+ * multipart/form-data 上传文件到图床，返回图片可访问 URL（失败自动重试 3 次）。
+ * opts.signal：外部取消信号；取消时中止请求并抛「用户已取消」，不再重试。
+ */
+async function uploadFile(localPath, uploadUrl, opts = {}) {
+  const outerSignal = opts.signal || null;
   let lastErr;
   for (let attempt = 1; attempt <= 3; attempt++) {
+    if (outerSignal && outerSignal.aborted) throw new Error('用户已取消');
     try {
       const buffer = fs.readFileSync(localPath);
       const fileName = path.basename(localPath);
       const form = new FormData();
       form.append('file', new Blob([buffer]), fileName);
 
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 60000);
+      const { signal, cleanup } = composeSignal(outerSignal, 60000);
       let res;
       try {
-        res = await fetch(uploadUrl, { method: 'POST', body: form, signal: controller.signal });
+        res = await fetch(uploadUrl, { method: 'POST', body: form, signal });
       } finally {
-        clearTimeout(timer);
+        cleanup();
       }
       const text = await res.text();
       if (!res.ok) {
@@ -40,12 +80,14 @@ async function uploadFile(localPath, uploadUrl) {
       if (!url) throw new Error(`上传返回中未找到图片链接：${text.slice(0, 300)}`);
       return url;
     } catch (e) {
+      // 外部取消优先：不重试，直接以「用户已取消」上抛
+      if (outerSignal && outerSignal.aborted) throw new Error('用户已取消');
       lastErr = e;
       const msg = e?.message || String(e);
-      // 网络中断/超时类错误才重试；接口返回的业务错误不重试
+      // 内部超时（AbortError 且未被外部取消）也归为可重试的网络类错误
       const retriable = /fetch failed|aborted|timeout|network|ENOTFOUND|ECONNRESET|ETIMEDOUT|EOF|socket/i.test(msg);
       if (attempt < 3 && retriable) {
-        await new Promise(r => setTimeout(r, 1000 * attempt));
+        await sleep(1000 * attempt, outerSignal);   // 重试间隔也能被取消打断
         continue;
       }
       break;
@@ -55,10 +97,10 @@ async function uploadFile(localPath, uploadUrl) {
 }
 
 /** 素材没有 URL 时自动上传，返回可用于接口的图片链接 */
-async function ensureAssetUrl(asset, uploadUrl, onUploaded) {
+async function ensureAssetUrl(asset, uploadUrl, onUploaded, opts = {}) {
   if (asset.url) return asset.url;
   if (!asset.localPath) throw new Error('素材缺少本地文件，无法上传');
-  const url = await uploadFile(asset.localPath, uploadUrl);
+  const url = await uploadFile(asset.localPath, uploadUrl, opts);
   if (onUploaded) onUploaded(asset.id, url);
   return url;
 }
@@ -81,18 +123,19 @@ function extFromUrl(u) {
 }
 
 /** 解析接口返回的单张图片（http 链接 / data URI / 裸 base64）为 buffer + 扩展名 */
-async function resolveImage(item) {
+async function resolveImage(item, signal) {
+  if (signal && signal.aborted) throw new Error('用户已取消');
   if (typeof item !== 'string') {
     // 兼容 { b64_json: '...' } / { url: '...' } 形式
     if (item && typeof item === 'object') {
-      if (item.url) return resolveImage(item.url);
-      if (item.b64_json) return resolveImage(item.b64_json);
+      if (item.url) return resolveImage(item.url, signal);
+      if (item.b64_json) return resolveImage(item.b64_json, signal);
     }
     throw new Error('无法识别的图片返回格式');
   }
 
   if (/^https?:\/\//i.test(item)) {
-    const res = await fetch(item);
+    const res = await fetch(item, { signal });
     if (!res.ok) throw new Error(`下载生成图失败 (HTTP ${res.status})：${item}`);
     const buf = Buffer.from(await res.arrayBuffer());
     const ext = extFromUrl(item) || extFromMime(res.headers.get('content-type') || '');
@@ -121,9 +164,10 @@ async function resolveImage(item) {
  * @param {string}  opts.prompt
  * @param {object}  opts.params      { n, size, quality, background, output_format }
  * @param {object}  opts.config      { baseUrl, modelPath, apiKey }
+ * @param {AbortSignal} [opts.signal] 取消信号：中止模型调用与结果图下载
  */
 async function generateImages(opts) {
-  const { imageUrls, maskUrl, prompt, params, config } = opts;
+  const { imageUrls, maskUrl, prompt, params, config, signal } = opts;
   const endpoint = buildEndpoint(config.baseUrl, config.modelPath);
 
   const body = {
@@ -143,7 +187,8 @@ async function generateImages(opts) {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${config.apiKey || ''}`
     },
-    body: JSON.stringify(body)
+    body: JSON.stringify(body),
+    signal
   });
 
   const text = await res.text();
@@ -165,9 +210,16 @@ async function generateImages(opts) {
 
   const resolved = [];
   for (const item of images) {
+    if (signal && signal.aborted) {
+      // 取消发生在结果图下载阶段：已解析出的部分照常返回，由调用方决定落盘
+      return { images: resolved, canceled: true, partial: true, requestBody: body, endpoint };
+    }
     try {
-      resolved.push(await resolveImage(item));
+      resolved.push(await resolveImage(item, signal));
     } catch (e) {
+      if (signal && signal.aborted) {
+        return { images: resolved, canceled: true, partial: true, requestBody: body, endpoint };
+      }
       console.error('解析返回图片失败:', e.message);
     }
   }

@@ -1,0 +1,83 @@
+/* ===== 弹窗层 =====
+   z-index 体系：拖入层 90 < 选择器/确认 100 < 预览 110 < toast 200
+   （预览必须高于选择器：在「从历史选择」里点素材详情时才能叠着看） */
+.modal-mask {
+  position: fixed; inset: 0; background: var(--scrim);
+  display: flex; align-items: center; justify-content: center; z-index: 100;
+  padding: 24px;
+}
+.modal-mask[hidden] { display: none; }
+#previewModal { z-index: 110; }
+.modal {
+  background: var(--bg-surface); border: 1px solid var(--border-1);
+  border-radius: var(--r-xl); width: 880px; max-width: 94vw;
+  max-height: 88vh; display: flex; flex-direction: column; overflow: hidden;
+  box-shadow: var(--shadow-2);
+}
+.modal.wide { width: 1040px; }
+.modal.narrow { width: 460px; }
+.modal-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 16px 20px; border-bottom: 1px solid var(--border-1);
+}
+.modal-head h2 { font-size: 16px; font-weight: var(--fw-3); }
+.modal-close {
+  border: 0; background: none; cursor: pointer; color: var(--text-2);
+  width: 30px; height: 30px; border-radius: var(--r-sm);
+  display: flex; align-items: center; justify-content: center; font-size: 15px;
+  transition: color 0.15s, background 0.15s, transform 0.06s;
+}
+.modal-close svg.i { font-size: 15px; }
+.modal-close:hover { color: var(--danger-text); background: var(--danger-soft); }
+.modal .tabs { padding: 12px 20px 0; }
+.modal-body { padding: 16px 20px; overflow-y: auto; }
+.modal-foot {
+  display: flex; gap: 10px; justify-content: flex-end; align-items: center;
+  padding: 14px 20px; border-top: 1px solid var(--border-1);
+}
+.modal-foot .hint { margin-right: auto; }
+
+/* ===== 大图预览 ===== */
+.preview-body { text-align: center; }
+.preview-body img {
+  max-width: 100%; max-height: 60vh; border-radius: var(--r-md); display: inline-block;
+  background: repeating-conic-gradient(var(--checker-a) 0 25%, var(--checker-b) 0 50%) 0 0/20px 20px;
+}
+.preview-stage { position: relative; display: inline-block; max-width: 100%; }
+.preview-nav {
+  position: absolute; top: 50%; transform: translateY(-50%);
+  width: 40px; height: 40px; border-radius: 50%; border: 0; cursor: pointer;
+  background: oklch(20% 0.02 265 / 0.55); color: #fff; font-size: 20px; line-height: 1;
+  display: flex; align-items: center; justify-content: center;
+  transition: background 0.15s, transform 0.15s;
+}
+.preview-nav svg.i { font-size: 20px; }
+.preview-nav[hidden] { display: none; }
+.preview-nav:hover { background: oklch(20% 0.02 265 / 0.82); }
+.preview-nav:active { transform: translateY(-50%) translateY(1px) scale(0.985); }
+#btnPrev { left: 10px; }
+#btnNext { right: 10px; }
+.preview-hint { font-size: 11px; color: var(--text-2); margin-top: 6px; }
+.preview-hint[hidden] { display: none; }
+.preview-meta {
+  margin-top: 14px; text-align: left; font-size: 12px; color: var(--text-2);
+  background: var(--bg-raised); border: 1px solid var(--border-1);
+  border-radius: var(--r-md); padding: 12px 14px; line-height: 1.9;
+  word-break: break-all;
+}
+.preview-meta b { color: var(--text-1); }
+.preview-meta .row { display: flex; gap: 8px; }
+.preview-meta .k { flex-shrink: 0; color: var(--text-1); font-weight: 600; min-width: 92px; }
+.preview-meta a { color: var(--accent); }
+.preview-actions { margin-top: 10px; display: flex; gap: 8px; flex-wrap: wrap; }
+
+/* ===== 确认弹窗 ===== */
+.confirm-msg { font-size: 14px; line-height: 1.6; }
+.confirm-detail {
+  margin-top: 8px; font-size: 12px; color: var(--text-2);
+  word-break: break-all; background: var(--bg-raised); border: 1px solid var(--border-1);
+  border-radius: var(--r-sm); padding: 8px 10px;
+}
+.confirm-opts { margin-top: 12px; display: flex; flex-direction: column; gap: 8px; }
+.confirm-opt { display: flex; align-items: center; gap: 8px; font-size: 13px; cursor: pointer; }
+.confirm-opt input { width: auto; accent-color: var(--accent); }

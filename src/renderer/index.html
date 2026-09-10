@@ -6,27 +6,119 @@
         content="default-src 'self'; img-src 'self' file: data: https: http:; style-src 'self' 'unsafe-inline'; script-src 'self';" />
   <title>AI 出图平台</title>
   <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="base.css" />
+  <link rel="stylesheet" href="generate.css" />
+  <link rel="stylesheet" href="history.css" />
+  <link rel="stylesheet" href="settings.css" />
+  <link rel="stylesheet" href="modal.css" />
 </head>
 <body>
+  <!-- 图标精灵：CSP 禁止 CSS url()，内联 SVG <symbol> + <use> 是唯一免复制的方案。
+       stroke 继承 currentColor（见 styles.css svg.i），viewBox 统一 24。 -->
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <defs>
+      <symbol id="i-palette" viewBox="0 0 24 24">
+        <path d="M12 3a9 9 0 1 0 0 18 2.5 2.5 0 0 0 2.4-3.2c-.4-1.3.5-2.3 1.8-2.3h1.3A3.5 3.5 0 0 0 21 12 9 9 0 0 0 12 3Z"/>
+        <circle cx="8" cy="11" r="1" fill="currentColor" stroke="none"/>
+        <circle cx="11" cy="7.5" r="1" fill="currentColor" stroke="none"/>
+        <circle cx="15" cy="8.5" r="1" fill="currentColor" stroke="none"/>
+      </symbol>
+      <symbol id="i-sparkle" viewBox="0 0 24 24">
+        <path d="M11 5l1.5 4L16.5 10.5l-4 1.5L11 16l-1.5-4L5.5 10.5l4-1.5z"/>
+        <path d="M18 14.5l.8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8z"/>
+      </symbol>
+      <symbol id="i-archive" viewBox="0 0 24 24">
+        <rect x="3.5" y="4.5" width="17" height="5" rx="1.5"/>
+        <path d="M5.5 9.5v8a2 2 0 0 0 2 2h9a2 2 0 0 0 2-2v-8"/>
+        <path d="M10 13.5h4"/>
+      </symbol>
+      <symbol id="i-gear" viewBox="0 0 24 24">
+        <circle cx="12" cy="12" r="3.2"/>
+        <path d="M12 2.8v2.6M12 18.6v2.6M2.8 12h2.6M18.6 12h2.6M5.4 5.4l1.9 1.9M16.7 16.7l1.9 1.9M18.6 5.4l-1.9 1.9M7.3 16.7l-1.9 1.9"/>
+      </symbol>
+      <symbol id="i-upload" viewBox="0 0 24 24">
+        <path d="M12 15.5V4"/><path d="M7.5 8.5 12 4l4.5 4.5"/><path d="M4.5 20h15"/>
+      </symbol>
+      <symbol id="i-image" viewBox="0 0 24 24">
+        <rect x="3.5" y="5" width="17" height="14" rx="2"/>
+        <circle cx="9" cy="10.5" r="1.6"/>
+        <path d="M5 17l4.5-4.5 3.5 3 2.5-2 3.5 3.5"/>
+      </symbol>
+      <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></symbol>
+      <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12.5 9.5 17 19 7.5"/></symbol>
+      <symbol id="i-cloud-up" viewBox="0 0 24 24">
+        <path d="M17.5 17.5a4 4 0 0 0 .3-8 6 6 0 0 0-11.5-1.3 4 4 0 0 0 .4 8"/>
+        <path d="M12 12v7M9.7 14.3 12 12l2.3 2.3"/>
+      </symbol>
+      <symbol id="i-bolt" viewBox="0 0 24 24"><path d="M13 2.5 5 14h5.5L10 21.5 19 10h-5.5z"/></symbol>
+      <symbol id="i-stop" viewBox="0 0 24 24">
+        <rect x="6.5" y="6.5" width="11" height="11" rx="2" fill="currentColor" stroke="none"/>
+      </symbol>
+      <symbol id="i-trash" viewBox="0 0 24 24">
+        <path d="M4.5 7h15"/><path d="M9.5 7V4.8h5V7"/><path d="M6.5 7l.9 12a2 2 0 0 0 2 1.9h5.2a2 2 0 0 0 2-1.9l.9-12"/>
+      </symbol>
+      <symbol id="i-refresh" viewBox="0 0 24 24">
+        <path d="M20 12a8 8 0 1 1-2.34-5.66"/><path d="M20 4.5V9h-4.5"/>
+      </symbol>
+      <symbol id="i-reuse" viewBox="0 0 24 24">
+        <path d="M9 9.5 4.5 14 9 18.5"/><path d="M4.5 14h10a5.5 5.5 0 0 0 5.5-5.5v-1"/>
+      </symbol>
+      <symbol id="i-copy" viewBox="0 0 24 24">
+        <rect x="9" y="9" width="11" height="11" rx="2"/>
+        <path d="M15 5.5H6a1.5 1.5 0 0 0-1.5 1.5V15"/>
+      </symbol>
+      <symbol id="i-link" viewBox="0 0 24 24">
+        <path d="M10.5 13.5a4.5 4.5 0 0 0 6.4 0l2-2a4.5 4.5 0 0 0-6.4-6.4L11.2 6.4"/>
+        <path d="M13.5 10.5a4.5 4.5 0 0 0-6.4 0l-2 2a4.5 4.5 0 0 0 6.4 6.4l1.3-1.3"/>
+      </symbol>
+      <symbol id="i-folder" viewBox="0 0 24 24">
+        <path d="M4 19.5V6a1.5 1.5 0 0 1 1.5-1.5H10l2 2.2h6.5A1.5 1.5 0 0 1 20 8.2v11.3z"/>
+      </symbol>
+      <symbol id="i-left" viewBox="0 0 24 24"><path d="M14.5 5.5 8 12l6.5 6.5"/></symbol>
+      <symbol id="i-right" viewBox="0 0 24 24"><path d="M9.5 5.5 16 12l-6.5 6.5"/></symbol>
+      <symbol id="i-download" viewBox="0 0 24 24">
+        <path d="M12 4v11"/><path d="M7 10.5 12 15.5l5-5"/><path d="M4.5 20h15"/>
+      </symbol>
+      <symbol id="i-monitor" viewBox="0 0 24 24">
+        <rect x="3" y="4.5" width="18" height="12.5" rx="2"/><path d="M8.5 21h7M12 17v4"/>
+      </symbol>
+      <symbol id="i-sun" viewBox="0 0 24 24">
+        <circle cx="12" cy="12" r="4"/>
+        <path d="M12 2.5V5M12 19v2.5M2.5 12H5M19 12h2.5M5.3 5.3 7 7M17 17l1.7 1.7M18.7 5.3 17 7M7 17l-1.7 1.7"/>
+      </symbol>
+      <symbol id="i-moon" viewBox="0 0 24 24">
+        <path d="M20 14.5A8.5 8.5 0 1 1 9.5 4a7 7 0 0 0 10.5 10.5Z"/>
+      </symbol>
+      <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+      <symbol id="i-search" viewBox="0 0 24 24">
+        <circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5 20 20"/>
+      </symbol>
+      <symbol id="i-save" viewBox="0 0 24 24">
+        <path d="M5.5 4.5h10L19.5 8.5v11a1 1 0 0 1-1 1h-12a1 1 0 0 1-1-1v-14a1 1 0 0 1 1-1Z"/>
+        <path d="M8.5 4.5v4.7h6.6V4.5M8.5 20.5v-6h7v6"/>
+      </symbol>
+    </defs>
+  </svg>
+
   <div class="app">
     <!-- 侧边栏 -->
     <aside class="sidebar">
       <div class="logo">
-        <div class="logo-mark">🎨</div>
+        <div class="logo-mark"><svg class="i" aria-hidden="true"><use href="#i-palette"/></svg></div>
         <div class="logo-text">
           <div class="logo-title">AI 出图平台</div>
           <div class="logo-sub">GPT Image 图片编辑</div>
         </div>
       </div>
-      <nav class="nav">
-        <button class="nav-item active" data-page="generate">
-          <span class="nav-icon">✨</span> 调用模型
+      <nav class="nav" aria-label="主导航">
+        <button class="nav-item active" data-page="generate" aria-current="page">
+          <svg class="i nav-icon" aria-hidden="true"><use href="#i-sparkle"/></svg> 调用模型
         </button>
         <button class="nav-item" data-page="history">
-          <span class="nav-icon">🗂️</span> 历史素材
+          <svg class="i nav-icon" aria-hidden="true"><use href="#i-archive"/></svg> 历史素材
         </button>
         <button class="nav-item" data-page="settings">
-          <span class="nav-icon">⚙️</span> 设置
+          <svg class="i nav-icon" aria-hidden="true"><use href="#i-gear"/></svg> 设置
         </button>
       </nav>
       <div class="sidebar-footer">数据保存在本机应用目录</div>
@@ -45,38 +137,34 @@
           <div class="card-title">当前模型
             <span class="hint">在「设置」中添加/管理多个模型</span>
           </div>
-          <div class="ref-toolbar" style="margin-bottom:0">
-            <select id="activeModel" style="max-width:420px"></select>
-            <button class="btn small" id="btnGoSettings">⚙️ 管理模型</button>
+          <div class="model-pick">
+            <select id="activeModel" aria-label="选择当前使用的模型"></select>
+            <button class="btn small" id="btnGoSettings"><svg class="i" aria-hidden="true"><use href="#i-gear"/></svg> 管理模型</button>
           </div>
         </div>
 
-        <div class="card">
+        <div class="card" id="refCard">
           <div class="card-title">
             参考图 <span class="req">*</span>
-            <span class="hint">支持多张（接口将以图片数组提交），支持 PNG / JPEG / WebP / GIF</span>
+            <span class="hint">支持多张（接口将以图片数组提交），PNG / JPEG / WebP / GIF，可直接拖入或 Ctrl/Cmd+V 粘贴</span>
           </div>
           <div class="ref-toolbar">
-            <button class="btn primary" id="btnUploadRef">📤 上传图片</button>
-            <button class="btn" id="btnPickHistory">🗂️ 从历史素材选择</button>
+            <button class="btn primary" id="btnUploadRef"><svg class="i" aria-hidden="true"><use href="#i-upload"/></svg> 上传图片</button>
+            <button class="btn" id="btnPickHistory"><svg class="i" aria-hidden="true"><use href="#i-archive"/></svg> 从历史素材选择</button>
             <button class="btn ghost" id="btnClearRefs">清空</button>
           </div>
-          <div class="thumb-grid" id="refList">
-            <div class="empty-tip" id="refEmpty">尚未添加参考图，点击上方按钮上传或从历史选择</div>
-          </div>
+          <div class="thumb-grid" id="refList"></div>
         </div>
 
-        <div class="card">
+        <div class="card" id="maskCard">
           <div class="card-title">
-            遮罩图 <span class="hint">可选，须为带 alpha 通道的 PNG，透明区域表示需要编辑的位置</span>
+            遮罩图 <span class="hint">可选，须为带 alpha 通道的 PNG，透明区域表示需要编辑的位置；也可拖到此处</span>
           </div>
           <div class="ref-toolbar">
             <button class="btn" id="btnPickMask">选择遮罩图</button>
             <button class="btn ghost" id="btnClearMask">清除遮罩</button>
           </div>
-          <div class="thumb-grid" id="maskList">
-            <div class="empty-tip" id="maskEmpty">未选择遮罩图（可选）</div>
-          </div>
+          <div class="thumb-grid" id="maskList"></div>
         </div>
 
         <div class="card">
@@ -89,9 +177,13 @@
         <div class="card">
           <div class="card-title">生成参数</div>
           <div class="form-grid">
-            <label class="field">
-              <span>尺寸 size</span>
-              <select id="paramSize">
+            <div class="field full-ratio">
+              <div class="field-label">
+                <span>尺寸 size</span>
+                <span class="hint">点选，或在下拉中查看原值</span>
+              </div>
+              <div id="ratioGrid"></div>
+              <select id="paramSize" class="ratio-fallback" aria-label="尺寸 size（备用下拉）">
                 <option value="auto">auto（自动）</option>
                 <option value="1024x1024" selected>1024x1024</option>
                 <option value="1024x1536">1024x1536（竖）</option>
@@ -112,7 +204,7 @@
                 <option value="2160x3840">2160x3840</option>
                 <option value="3840x2160">3840x2160</option>
               </select>
-            </label>
+            </div>
             <label class="field">
               <span>质量 quality</span>
               <select id="paramQuality">
@@ -143,8 +235,9 @@
         </div>
 
         <div class="generate-bar">
-          <button class="btn big primary" id="btnGenerate">🚀 开始生成</button>
-          <div class="progress" id="genProgress"></div>
+          <button class="btn big primary" id="btnGenerate"><svg class="i" aria-hidden="true"><use href="#i-bolt"/></svg> 开始生成</button>
+          <button class="btn big stop" id="genStop" hidden><svg class="i" aria-hidden="true"><use href="#i-stop"/></svg> 停止</button>
+          <div class="progress" id="genProgress" role="status"><span id="genStage"></span><span id="genElapsed" class="gen-elapsed"></span></div>
         </div>
 
         <div class="card" id="resultCard" style="display:none">
@@ -158,14 +251,28 @@
         <div class="page-head">
           <h1>历史素材</h1>
           <div class="tabs">
-            <button class="tab active" data-htab="upload">上传图片</button>
+            <button class="tab active" data-htab="upload" aria-current="true">上传图片</button>
             <button class="tab" data-htab="generated">生成图片</button>
-            <button class="btn small" id="btnRefreshHistory" style="margin-left:auto">🔄 刷新</button>
+            <button class="btn small" id="btnBatchMode" style="margin-left:auto"><svg class="i" aria-hidden="true"><use href="#i-check"/></svg> 批量管理</button>
+            <button class="btn small" id="btnRefreshHistory"><svg class="i" aria-hidden="true"><use href="#i-refresh"/></svg> 刷新</button>
+          </div>
+          <div class="history-toolbar">
+            <input type="search" id="historySearch" placeholder="搜索提示词 / 文件名 / ID…" aria-label="搜索素材" />
+            <select id="historySort" class="history-sort" aria-label="排序方式">
+              <option value="time-desc">最新在前</option>
+              <option value="time-asc">最早在前</option>
+              <option value="name-asc">名称 / 提示词 A→Z</option>
+            </select>
           </div>
         </div>
-        <div class="thumb-grid large" id="historyGrid">
-          <div class="empty-tip">暂无素材</div>
+        <div class="batch-bar" id="batchBar" hidden>
+          <span class="batch-count" id="batchCount">已选 0 项</span>
+          <button class="btn small" id="btnBatchSelectAll">全选本页</button>
+          <button class="btn small danger" id="btnBatchDelete"><svg class="i" aria-hidden="true"><use href="#i-trash"/></svg> 删除所选</button>
+          <button class="btn small ghost" id="btnBatchExit">退出批量</button>
         </div>
+        <div class="thumb-grid large" id="historyGrid"></div>
+        <div class="load-sentinel" id="loadSentinel" hidden></div>
       </section>
 
       <!-- ===== 设置页 ===== -->
@@ -176,7 +283,7 @@
         </div>
 
         <div class="card form-card">
-          <div class="card-title">🌐 全局渠道配置</div>
+          <div class="card-title"><svg class="i" aria-hidden="true"><use href="#i-link"/></svg> 全局渠道配置</div>
           <label class="field">
             <span>全局渠道 Base URL（模型留空时使用）</span>
             <input type="text" id="cfgBaseUrl" placeholder="https://api.highwayapi.ai" />
@@ -194,12 +301,27 @@
 
         <div class="card">
           <div class="card-title">
-            🤖 模型列表
+            <svg class="i" aria-hidden="true"><use href="#i-sparkle"/></svg> 模型列表
             <span class="hint">单选一个为当前使用模型；每个模型可指向不同渠道/密钥</span>
           </div>
           <div id="modelList"></div>
           <div class="ref-toolbar" style="margin-top:12px">
-            <button class="btn" id="btnAddModel">➕ 添加模型</button>
+            <button class="btn" id="btnAddModel"><svg class="i" aria-hidden="true"><use href="#i-plus"/></svg> 添加模型</button>
+          </div>
+        </div>
+
+        <div class="card form-card">
+          <div class="card-title"><svg class="i" aria-hidden="true"><use href="#i-sun"/></svg> 外观</div>
+          <div class="appearance-row">
+            <div class="field">
+              <span>主题</span>
+              <small class="hint">跟随系统会随 macOS / Windows 的深色设置自动切换</small>
+            </div>
+            <div class="theme-seg" id="themeSegment" role="group" aria-label="主题模式">
+              <button id="btnThemeSystem" data-theme-val="system"><svg class="i" aria-hidden="true"><use href="#i-monitor"/></svg> 跟随系统</button>
+              <button id="btnThemeLight" data-theme-val="light"><svg class="i" aria-hidden="true"><use href="#i-sun"/></svg> 浅色</button>
+              <button id="btnThemeDark" data-theme-val="dark"><svg class="i" aria-hidden="true"><use href="#i-moon"/></svg> 深色</button>
+            </div>
           </div>
         </div>
 
@@ -209,8 +331,8 @@
             <div class="static-path" id="dataDir">—</div>
           </div>
           <div class="ref-toolbar">
-            <button class="btn primary" id="btnSaveConfig">💾 保存配置</button>
-            <button class="btn" id="btnOpenDataDir">📁 打开数据目录</button>
+            <button class="btn primary" id="btnSaveConfig"><svg class="i" aria-hidden="true"><use href="#i-save"/></svg> 保存配置</button>
+            <button class="btn" id="btnOpenDataDir"><svg class="i" aria-hidden="true"><use href="#i-folder"/></svg> 打开数据目录</button>
             <span class="save-tip" id="cfgTip"></span>
           </div>
         </div>
@@ -220,13 +342,13 @@
 
   <!-- 历史素材选择弹窗 -->
   <div class="modal-mask" id="pickerModal" hidden>
-    <div class="modal">
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="pickerTitle">
       <div class="modal-head">
-        <h2>选择历史素材</h2>
-        <button class="modal-close" data-close="pickerModal">✕</button>
+        <h2 id="pickerTitle">选择历史素材</h2>
+        <button class="modal-close" data-close="pickerModal" aria-label="关闭"><svg class="i" aria-hidden="true"><use href="#i-x"/></svg></button>
       </div>
       <div class="tabs">
-        <button class="tab active" data-ptab="upload">上传图片</button>
+        <button class="tab active" data-ptab="upload" aria-current="true">上传图片</button>
         <button class="tab" data-ptab="generated">生成图片</button>
       </div>
       <div class="modal-body">
@@ -240,22 +362,57 @@
     </div>
   </div>
 
-  <!-- 大图预览弹窗 -->
+  <!-- 通用确认弹窗（删除素材等，替代原生 confirm） -->
+  <div class="modal-mask" id="confirmModal" hidden>
+    <div class="modal narrow" role="alertdialog" aria-modal="true" aria-labelledby="confirmTitle">
+      <div class="modal-head">
+        <h2 id="confirmTitle">确认</h2>
+        <button class="modal-close" id="btnConfirmX" aria-label="关闭"><svg class="i" aria-hidden="true"><use href="#i-x"/></svg></button>
+      </div>
+      <div class="modal-body">
+        <div class="confirm-msg" id="confirmMsg"></div>
+        <div class="confirm-detail" id="confirmDetail" hidden></div>
+        <div class="confirm-opts" id="confirmOpts">
+          <label class="confirm-opt"><input type="radio" name="delOpt" value="record" checked /><span>仅删除记录（保留本地图片文件）</span></label>
+          <label class="confirm-opt"><input type="radio" name="delOpt" value="files" /><span>删除记录并删除本地图片文件</span></label>
+        </div>
+      </div>
+      <div class="modal-foot">
+        <button class="btn" id="btnConfirmCancel">取消</button>
+        <button class="btn danger" id="btnConfirmOk">确定</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 大图预览弹窗（z-index 高于选择器：预览里点参考图 ID 要能叠着看） -->
   <div class="modal-mask" id="previewModal" hidden>
-    <div class="modal wide">
+    <div class="modal wide" role="dialog" aria-modal="true" aria-labelledby="previewTitle">
       <div class="modal-head">
         <h2 id="previewTitle">预览</h2>
-        <button class="modal-close" data-close="previewModal">✕</button>
+        <button class="modal-close" data-close="previewModal" aria-label="关闭"><svg class="i" aria-hidden="true"><use href="#i-x"/></svg></button>
       </div>
       <div class="modal-body preview-body">
-        <img id="previewImg" alt="预览" />
+        <div class="preview-stage">
+          <button class="preview-nav" id="btnPrev" aria-label="上一张"><svg class="i" aria-hidden="true"><use href="#i-left"/></svg></button>
+          <img id="previewImg" alt="预览" />
+          <button class="preview-nav" id="btnNext" aria-label="下一张"><svg class="i" aria-hidden="true"><use href="#i-right"/></svg></button>
+        </div>
+        <div class="preview-hint" id="previewHint">左右方向键翻页，Esc 关闭</div>
         <div class="preview-meta" id="previewMeta"></div>
       </div>
     </div>
   </div>
 
-  <!-- toast -->
-  <div class="toast" id="toast" hidden></div>
+  <!-- 全局拖入高亮层（pointer-events:none，永不拦截 drop 事件） -->
+  <div class="drop-overlay" id="dropOverlay" hidden>
+    <div class="drop-overlay-inner">
+      <svg class="i" aria-hidden="true"><use href="#i-download"/></svg>
+      <div>松开即上传为<b>参考图</b> · 拖到「遮罩图」卡片内可设为遮罩</div>
+    </div>
+  </div>
+
+  <!-- toast（id 不可改：app.js 覆写 className；aria-live 播报给读屏器） -->
+  <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
 
   <script src="app.js"></script>
 </body>

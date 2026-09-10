@@ -1,4 +1,4 @@
-const { contextBridge, ipcRenderer, clipboard } = require('electron');
+const { contextBridge, ipcRenderer, clipboard, webUtils } = require('electron');
 const { pathToFileURL } = require('url');
 
 contextBridge.exposeInMainWorld('api', {
@@ -7,19 +7,35 @@ contextBridge.exposeInMainWorld('api', {
   saveConfig: (patch) => ipcRenderer.invoke('config:save', patch),
   getDataDir: () => ipcRenderer.invoke('app:dataDir'),
 
-  // 文件选择
+  // 主题（system|light|dark）：主进程同步窗口底色，渲染层同步 data-theme
+  getTheme: () => ipcRenderer.invoke('theme:get'),
+  setTheme: (theme) => ipcRenderer.invoke('theme:set', theme),
+  onThemeChanged: (cb) => {
+    const listener = (_e, theme) => cb(theme);
+    ipcRenderer.on('theme:changed', listener);
+    return () => ipcRenderer.removeListener('theme:changed', listener);
+  },
+
+  // 文件选择 / 拖拽 / 粘贴
   pickImages: () => ipcRenderer.invoke('dialog:pickImages'),
   pickMask: () => ipcRenderer.invoke('dialog:pickMask'),
+  pasteImage: () => ipcRenderer.invoke('clipboard:readImage'),
+  // Electron 33：File.path 已移除，拖拽取路径必须走 webUtils（同步）
+  getPathForFile: (file) => webUtils.getPathForFile(file),
 
   // 素材
   listAssets: (type) => ipcRenderer.invoke('asset:list', type),
   getAsset: (id) => ipcRenderer.invoke('asset:get', id),
   deleteAsset: (id) => ipcRenderer.invoke('asset:delete', id),
+  deleteMany: (ids, opts) => ipcRenderer.invoke('asset:deleteMany', ids, opts),
+  thumbnail: (id) => ipcRenderer.invoke('asset:thumbnail', id),
   importFiles: (paths) => ipcRenderer.invoke('asset:importFiles', paths),
   ensureUploaded: (id) => ipcRenderer.invoke('asset:ensureUploaded', id),
 
-  // 生图
+  // 生图（payload 含 jobId，配合 cancel(jobId) 定向停止）
   generate: (payload) => ipcRenderer.invoke('generate:run', payload),
+  cancelGenerate: (jobId) => ipcRenderer.invoke('generate:cancel', jobId),
+  // 进度 payload：{ stage, elapsed }（elapsed 秒，保留 1 位小数）
   onProgress: (cb) => {
     const listener = (_e, msg) => cb(msg);
     ipcRenderer.on('generate:progress', listener);

@@ -1,6 +1,6 @@
 {
   "name": "ai-image-studio",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "接口 AI 出图平台桌面端 - 配置渠道、上传素材、调用 GPT Image 图片编辑接口",
   "main": "src/main/main.js",
   "scripts": {
@@ -40,7 +40,11 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "AI出图平台"
+      "shortcutName": "AI出图平台",
+      "include": "build/installer.nsh",
+      "deleteAppDataOnUninstall": false,
+      "artifactName": "${productName}-Setup-${version}.${ext}",
+      "installerLanguages": ["zh_CN", "en_US"]
     },
     "mac": {
       "icon": "assets/icon.png",
