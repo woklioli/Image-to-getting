@@ -7,6 +7,15 @@ contextBridge.exposeInMainWorld('api', {
   saveConfig: (patch) => ipcRenderer.invoke('config:save', patch),
   getDataDir: () => ipcRenderer.invoke('app:dataDir'),
 
+  // 主题（system|light|dark）：主进程同步窗口底色，渲染层同步 data-theme
+  getTheme: () => ipcRenderer.invoke('theme:get'),
+  setTheme: (theme) => ipcRenderer.invoke('theme:set', theme),
+  onThemeChanged: (cb) => {
+    const listener = (_e, theme) => cb(theme);
+    ipcRenderer.on('theme:changed', listener);
+    return () => ipcRenderer.removeListener('theme:changed', listener);
+  },
+
   // 文件选择 / 拖拽 / 粘贴
   pickImages: () => ipcRenderer.invoke('dialog:pickImages'),
   pickMask: () => ipcRenderer.invoke('dialog:pickMask'),

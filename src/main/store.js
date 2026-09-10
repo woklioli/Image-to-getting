@@ -10,7 +10,8 @@ const DEFAULT_CONFIG = {
   models: [
     { id: 'model-default', name: 'GPT Image 2 编辑', baseUrl: '', modelPath: 'v3/gpt-image-2-edit', apiKey: '' }
   ],
-  activeModelId: 'model-default'
+  activeModelId: 'model-default',
+  theme: 'system'          // system | light | dark
 };
 
 let userDataDir = null;
@@ -78,6 +79,7 @@ function getConfig() {
     apiKey: m.apiKey ?? ''
   }));
   if (!cfg.models.some(m => m.id === cfg.activeModelId)) cfg.activeModelId = cfg.models[0].id;
+  if (!['system', 'light', 'dark'].includes(cfg.theme)) cfg.theme = 'system';
   return cfg;
 }
 

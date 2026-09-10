@@ -90,18 +90,22 @@ app.whenReady().then(async () => {
   })()`);
   check('S2 添加模型后输入保留', s2.name === '保留我' && s2.count === 3, JSON.stringify(s2));
 
-  // ── 场景 3：填值 -> 删除最后一个模型 ──
-  let s3 = await win.webContents.executeJavaScript(`(() => {
+  // ── 场景 3：填值 -> 删除最后一个模型（阶段5：原生 confirm 换成应用内弹窗，需点「确定」） ──
+  let s3 = await win.webContents.executeJavaScript(`(async () => {
     const items = [...document.querySelectorAll('#modelList .model-item')];
     const ni = items[0].querySelector('[data-f="name"]');
     ni.value = '删除也别丢'; ni.dispatchEvent(new Event('input', { bubbles: true }));
-    window.confirm = () => true;
     items[items.length - 1].querySelector('.model-del').click();
+    await new Promise(r => setTimeout(r, 80));
+    const confirmShown = !document.getElementById('confirmModal').hidden;
+    document.getElementById('btnConfirmOk').click();
+    await new Promise(r => setTimeout(r, 120));
     const a0 = [...document.querySelectorAll('#modelList .model-item')][0];
-    return { name: a0.querySelector('[data-f="name"]').value,
+    return { confirmShown, name: a0.querySelector('[data-f="name"]').value,
              count: document.querySelectorAll('#modelList .model-item').length };
   })()`);
-  check('S3 删除模型后输入保留', s3.name === '删除也别丢' && s3.count === 2, JSON.stringify(s3));
+  check('S3 删除模型后输入保留（应用内确认弹窗）',
+    s3.confirmShown === true && s3.name === '删除也别丢' && s3.count === 2, JSON.stringify(s3));
 
   // ── 场景 4：下拉切 m-a -> radio 跟随 -> 保存 -> 不篡改名称、不回退 active ──
   let s4 = await win.webContents.executeJavaScript(`(async () => {

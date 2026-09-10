@@ -1,4 +1,4 @@
-const { app, ipcMain, dialog, shell, clipboard } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell, clipboard } = require('electron');
 const fs = require('fs');
 const path = require('path');
 const store = require('./store');
@@ -17,11 +17,24 @@ function sendProgress(event, jobId, stage) {
   });
 }
 
-function registerIpc() {
+function registerIpc(hooks = {}) {
   // ---------- 配置 ----------
   ipcMain.handle('config:get', () => store.getConfig());
   ipcMain.handle('config:save', (_e, patch) => store.saveConfig(patch || {}));
   ipcMain.handle('app:dataDir', () => store.paths().userDataDir);
+
+  // ---------- 主题 ----------
+  /* theme 变更要广播给所有窗口：主进程切 nativeTheme / 底色，渲染层切 data-theme。
+     返回值即最新 theme，调用方可直接应用，省一次 getConfig。 */
+  ipcMain.handle('theme:get', () => store.getConfig().theme);
+  ipcMain.handle('theme:set', (_e, theme) => {
+    const next = store.saveConfig({ theme: ['light', 'dark'].includes(theme) ? theme : 'system' }).theme;
+    if (hooks.applyTheme) hooks.applyTheme();
+    for (const w of BrowserWindow.getAllWindows()) {
+      if (!w.webContents.isDestroyed()) w.webContents.send('theme:changed', next);
+    }
+    return next;
+  });
 
   // ---------- 文件选择 ----------
   ipcMain.handle('dialog:pickImages', async () => {

@@ -28,20 +28,59 @@ let toastTimer = null;
 function toast(msg, type = '') {
   const el = $('#toast');
   el.textContent = msg;
-  el.className = 'toast' + (type ? ' ' + type : '');
+  el.className = 'toast' + (type ? ' ' + type : '');   // #toast 的 id 不可改（此处整体覆写 className）
   el.hidden = false;
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => { el.hidden = true; }, 3200);
 }
 
+/* 内联 SVG 精灵引用（CSP 禁 url()，SVG 只能进 DOM） */
+const icon = (name, cls = 'i') => `<svg class="${cls}" aria-hidden="true"><use href="#i-${name}"/></svg>`;
+/* 统一空状态：图标 + 说明 + 可选引导 */
+function emptyTip(iconName, text, sub = '') {
+  return `<div class="empty-tip">${icon(iconName)}<div>${text}</div>${sub ? `<span class="hint">${sub}</span>` : ''}</div>`;
+}
+/* 骨架屏占位（加载期消除布局跳动） */
+function skeletons(n) {
+  return Array.from({ length: n }, () =>
+    '<div class="skeleton" aria-hidden="true"><div class="sk-img"></div><div class="sk-line"></div><div class="sk-line w60"></div><div class="sk-line w40"></div></div>').join('');
+}
+
 /* ===== 导航 ===== */
 function goToPage(page) {
-  $$('.nav-item').forEach(b => b.classList.toggle('active', b.dataset.page === page));
+  $$('.nav-item').forEach(b => {
+    const on = b.dataset.page === page;
+    b.classList.toggle('active', on);
+    if (on) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current');
+  });
   $$('.page').forEach(p => p.classList.toggle('active', p.id === `page-${page}`));
   if (page === 'history') loadHistory();
 }
 $$('.nav-item').forEach(btn => {
   btn.addEventListener('click', () => goToPage(btn.dataset.page));
+});
+
+/* ===== 主题（system|light|dark） =====
+   深色 token 在 styles.css 两处成对定义（跟随系统 + 手动开关）；这里只负责
+   data-theme 属性、分段按钮状态、持久化，以及让主进程同步窗口底色（消灭深色启动闪白）。 */
+function applyTheme(t) {
+  if (t === 'system') document.documentElement.removeAttribute('data-theme');
+  else document.documentElement.setAttribute('data-theme', t);
+  $$('#themeSegment button').forEach(b => {
+    const on = b.dataset.themeVal === t;
+    b.classList.toggle('active', on);
+    b.setAttribute('aria-pressed', String(on));
+  });
+}
+async function initTheme() {
+  try { applyTheme(await window.api.getTheme()); } catch { /* 旧版主进程无此接口：保持 system */ }
+  if (window.api.onThemeChanged) window.api.onThemeChanged(applyTheme);
+}
+$$('#themeSegment button').forEach(b => {
+  b.addEventListener('click', async () => {
+    applyTheme(b.dataset.themeVal);                  // 先立即应用，再落盘
+    try { await window.api.setTheme(b.dataset.themeVal); } catch { /* 同上 */ }
+  });
 });
 
 /* ===== 设置 ===== */
@@ -68,7 +107,7 @@ function renderModelList() {
       <div class="model-head">
         <input type="radio" name="activeModel" title="设为当前使用模型" ${m.id === settingsCfg.activeModelId ? 'checked' : ''} />
         <input type="text" class="model-name-input" data-f="name" value="${esc(m.name)}" placeholder="模型名称，如：GPT Image 2 编辑" />
-        <button class="btn ghost small model-del" title="删除该模型">🗑️ 删除</button>
+        <button class="btn ghost small model-del" aria-label="删除模型 ${esc(m.name || m.modelPath)}">${icon('trash')} 删除</button>
       </div>
       <div class="model-fields">
         <label class="field full">
@@ -93,11 +132,14 @@ function renderModelList() {
     });
     item.querySelector('.model-del').addEventListener('click', () => {
       if (settingsCfg.models.length <= 1) return toast('至少保留一个模型', 'err');
-      if (!confirm(`确定删除模型「${m.name || m.modelPath}」吗？`)) return;
-      settingsCfg.models = settingsCfg.models.filter(x => x.id !== m.id);
-      if (settingsCfg.activeModelId === m.id) settingsCfg.activeModelId = settingsCfg.models[0].id;
-      renderModelList();
-      renderActiveModelSelect(settingsCfg);
+      askConfirm({ title: '删除模型', msg: `确定删除模型「${m.name || m.modelPath}」吗？`, detail: '仅删除配置项，不影响已生成的素材。' })
+        .then(r => {
+          if (!r.ok) return;
+          settingsCfg.models = settingsCfg.models.filter(x => x.id !== m.id);
+          if (settingsCfg.activeModelId === m.id) settingsCfg.activeModelId = settingsCfg.models[0].id;
+          renderModelList();
+          renderActiveModelSelect(settingsCfg);
+        });
     });
     item.querySelector('input[type=radio]').addEventListener('change', () => {
       settingsCfg.activeModelId = m.id;
@@ -155,7 +197,7 @@ $('#btnSaveConfig').addEventListener('click', async () => {
   settingsCfg = await window.api.saveConfig(patch);
   renderModelList();
   renderActiveModelSelect(settingsCfg);
-  $('#cfgTip').textContent = '✅ 已保存 ' + fmtTime(new Date().toISOString());
+  $('#cfgTip').innerHTML = icon('check') + ' 已保存 ' + fmtTime(new Date().toISOString());
   toast('配置已保存', 'ok');
 });
 
@@ -194,7 +236,7 @@ function renderRefs() {
   const list = $('#refList');
   list.innerHTML = '';
   if (refAssets.length === 0) {
-    list.innerHTML = '<div class="empty-tip">尚未添加参考图，点击上方按钮上传或从历史选择</div>';
+    list.innerHTML = emptyTip('image', '尚未添加参考图', '点击上方按钮上传，或直接拖入图片 / Ctrl·Cmd+V 粘贴');
     return;
   }
   refAssets.forEach((a, i) => {
@@ -203,12 +245,12 @@ function renderRefs() {
     card.innerHTML = `
       <img class="thumb-img" data-asset-id="${esc(a.id)}" data-fallback="${esc(imgSrc(a))}" alt="" decoding="async" />
       <span class="thumb-badge">参考图 ${i + 1}</span>
-      <button class="thumb-remove" title="移除">✕</button>
+      <button class="thumb-remove" aria-label="移除参考图">${icon('x')}</button>
       <div class="thumb-body">
         <div class="thumb-name" title="${esc(a.fileName || a.id)}">${esc(a.fileName || shortId(a.id))}</div>
         <div>${a.type === 'generated' ? '历史生成图' : '上传图'} · ${a.url
           ? '已上传图床'
-          : '<button class="thumb-retry" data-act="retry" title="该图尚未上传到图床，点击重试上传">☁️ 重试上传</button>'}</div>
+          : `<button class="thumb-retry" data-act="retry" title="该图尚未上传到图床，点击重试上传">${icon('cloud-up')} 重试上传</button>`}</div>
       </div>`;
     const img = card.querySelector('.thumb-img');
     img.addEventListener('error', e => {
@@ -235,7 +277,7 @@ function renderRefs() {
       } catch (err) {
         toast('重试上传失败：' + (err.message || err), 'err');
         retry.disabled = false;
-        retry.textContent = '☁️ 重试上传';
+        retry.innerHTML = icon('cloud-up') + ' 重试上传';
       }
       renderRefs();
     });
@@ -251,14 +293,14 @@ function renderMask() {
   const list = $('#maskList');
   list.innerHTML = '';
   if (!maskAsset) {
-    list.innerHTML = '<div class="empty-tip">未选择遮罩图（可选）</div>';
+    list.innerHTML = emptyTip('image', '未选择遮罩图（可选）', '带 alpha 的 PNG，透明区域将被重绘');
     return;
   }
   const card = document.createElement('div');
   card.className = 'thumb';
   card.innerHTML = `
     <img class="thumb-img" src="${esc(imgSrc(maskAsset))}" alt="" />
-    <button class="thumb-remove" title="移除">✕</button>
+    <button class="thumb-remove" aria-label="移除遮罩图">${icon('x')}</button>
     <div class="thumb-body"><div class="thumb-name">遮罩图</div><div>透明区域为编辑位置</div></div>`;
   card.querySelector('.thumb-remove').addEventListener('click', e => {
     e.stopPropagation();
@@ -429,17 +471,17 @@ let pickerOnConfirm = null;
 async function openPicker(onConfirm) {
   pickerSelected = new Set();
   pickerOnConfirm = onConfirm;
-  $('#pickerModal').hidden = false;
+  openModal('#pickerModal');
   $$('#pickerModal [data-ptab]').forEach(b => b.classList.toggle('active', b.dataset.ptab === pickerTab));
   await loadPickerGrid();
 }
 async function loadPickerGrid() {
   const grid = $('#pickerGrid');
-  grid.innerHTML = '<div class="empty-tip">加载中…</div>';
+  grid.innerHTML = skeletons(8);
   const assets = await window.api.listAssets(pickerTab);
   grid.innerHTML = '';
   if (!assets.length) {
-    grid.innerHTML = `<div class="empty-tip">暂无${pickerTab === 'upload' ? '上传' : '生成'}素材，可先在「调用模型」页上传图片</div>`;
+    grid.innerHTML = emptyTip('archive', `暂无${pickerTab === 'upload' ? '上传' : '生成'}素材`, '可先在「调用模型」页上传图片');
     return;
   }
   assets.forEach(a => grid.appendChild(buildPickerCard(a)));
@@ -454,7 +496,7 @@ function buildPickerCard(a) {
   card.innerHTML = `
     <img class="thumb-img" data-asset-id="${esc(a.id)}" data-fallback="${esc(imgSrc(a))}" alt="" decoding="async" />
     <span class="thumb-badge ${a.type === 'generated' ? 'gen' : ''}">${a.type === 'generated' ? '生成' : '上传'}</span>
-    <span class="thumb-check">✓</span>
+    <span class="thumb-check"></span>
     <div class="thumb-body">
       <div class="thumb-name" title="${esc(a.fileName || a.id)}">${esc(a.fileName || shortId(a.id))}</div>
       <div title="${esc(a.id)}">ID: ${esc(shortId(a.id))} · ${fmtTime(a.createdAt)}</div>
@@ -492,7 +534,7 @@ $('#btnPickerConfirm').addEventListener('click', async () => {
     const a = await window.api.getAsset(id);
     if (a && !refAssets.some(x => x.id === id)) { refAssets.push(a); added.push(a); }
   }
-  $('#pickerModal').hidden = true;
+  closeModal('#pickerModal');
   renderRefs();
   toast(`已添加 ${added.length} 张参考图`, 'ok');
   if (pickerOnConfirm) { pickerOnConfirm(added); pickerOnConfirm = null; }
@@ -522,14 +564,14 @@ const offProgress = window.api.onProgress(p => {
   // 兼容：万一收到旧式字符串
   const msg = typeof p === 'string' ? { stage: p, elapsed: null } : (p || {});
   if (msg.stage) lastStage = msg.stage;
-  setProgress('working', '⏳ ' + lastStage, msg.elapsed ?? undefined);
+  setProgress('working', lastStage, msg.elapsed ?? undefined);
 });
 window.addEventListener('beforeunload', offProgress);
 
 function startElapsedTicker() {
   stopElapsedTicker();
   genElapsedTimer = setInterval(() => {
-    if (lastStage) setProgress('working', '⏳ ' + lastStage, (Date.now() - genStart) / 1000);
+    if (lastStage) setProgress('working', lastStage, (Date.now() - genStart) / 1000);
   }, 1000);
 }
 function stopElapsedTicker() {
@@ -545,7 +587,7 @@ function setGenUI(running) {
 $('#genStop').addEventListener('click', async () => {
   if (!genJobId) return;
   $('#genStop').disabled = true;
-  setProgress('working', '⏳ 正在停止…');
+  setProgress('working', '正在停止…');
   try { await window.api.cancelGenerate(genJobId); } catch { /* 主进程异常时靠 generate 的 settle 收尾 */ }
 });
 
@@ -567,7 +609,7 @@ $('#btnGenerate').addEventListener('click', async () => {
   genStart = Date.now();
   lastStage = '开始…';
   setGenUI(true);
-  setProgress('working', '⏳ 开始…', 0);
+  setProgress('working', '开始…', 0);
   startElapsedTicker();
   try {
     const res = await window.api.generate({
@@ -581,20 +623,20 @@ $('#btnGenerate').addEventListener('click', async () => {
     if (res && res.canceled) {
       // 取消不是错误：灰色文案；已落盘的部分照常展示
       if (res.images && res.images.length) {
-        setProgress('canceled', `⏹ 已取消，本次生成 ${res.images.length} 张已保存`);
+        setProgress('canceled', `已取消，本次生成 ${res.images.length} 张已保存`);
         toast(`已停止，保留 ${res.images.length} 张已生成图片`, 'ok');
         renderResults(res.images);
       } else {
-        setProgress('canceled', '⏹ 已取消生成');
+        setProgress('canceled', '已取消生成');
         toast('已取消生成');
       }
     } else {
-      setProgress('', `✅ 完成（${secs}s），本次生成 ${res.images.length} 张图片，已保存到历史素材`);
+      setProgress('', `完成（${secs}s），本次生成 ${res.images.length} 张图片，已保存到历史素材`);
       toast(`生成成功，共 ${res.images.length} 张`, 'ok');
       renderResults(res.images);
     }
   } catch (e) {
-    setProgress('error', '❌ ' + (e.message || e));
+    setProgress('error', e.message || e);
     toast('生成失败', 'err');
   } finally {
     stopElapsedTicker();
@@ -621,7 +663,7 @@ function renderResults(images) {
       </div>
       <div class="thumb-actions">
         <button data-act="preview">预览</button>
-        <button data-act="reuse">🔄 复用</button>
+        <button data-act="reuse">${icon('reuse')} 复用</button>
         <button data-act="folder">文件夹</button>
         <button data-act="copy" class="danger">复制路径</button>
       </div>`;
@@ -648,9 +690,9 @@ function askConfirm({ title = '确认', msg, detail = '', fileOptions = false })
     dEl.hidden = !detail;
     $('#confirmOpts').hidden = !fileOptions;
     if (fileOptions) $('#confirmModal input[name=delOpt][value=record]').checked = true;
-    modal.hidden = false;
+    openModal('#confirmModal');
     const done = val => {
-      modal.hidden = true;
+      closeModal('#confirmModal');
       $('#btnConfirmOk').onclick = null; $('#btnConfirmCancel').onclick = null; $('#btnConfirmX').onclick = null;
       resolve(val);
     };
@@ -698,7 +740,10 @@ let historySearchTimer = null;
 $$('#page-history [data-htab]').forEach(btn => {
   btn.addEventListener('click', () => {
     historyTab = btn.dataset.htab;
-    $$('#page-history [data-htab]').forEach(b => b.classList.toggle('active', b === btn));
+    $$('#page-history [data-htab]').forEach(b => {
+      b.classList.toggle('active', b === btn);
+      if (b === btn) b.setAttribute('aria-current', 'true'); else b.removeAttribute('aria-current');
+    });
     loadHistory();
   });
 });
@@ -745,7 +790,7 @@ function updateBatchCount() {
 
 async function loadHistory() {
   const grid = $('#historyGrid');
-  grid.innerHTML = '<div class="empty-tip">加载中…</div>';
+  grid.innerHTML = skeletons(8);
   historyAll = await window.api.listAssets(historyTab);
   renderHistoryPage(true);
 }
@@ -773,7 +818,10 @@ function renderHistoryPage(reset) {
   const list = filteredHistoryAssets();
   if (!list.length) {
     const q = $('#historySearch').value.trim();
-    grid.innerHTML = `<div class="empty-tip">${q ? '没有匹配「' + esc(q) + '」的素材' : '暂无' + (historyTab === 'upload' ? '上传' : '生成') + '素材'}</div>`;
+    grid.innerHTML = q
+      ? emptyTip('search', `没有匹配「${esc(q)}」的素材`, '换个关键词，或清空搜索框')
+      : emptyTip('archive', `暂无${historyTab === 'upload' ? '上传' : '生成'}素材`,
+          historyTab === 'upload' ? '在「调用模型」页上传的参考图会出现在这里' : '生成记录会自动出现在这里');
     $('#loadSentinel').hidden = true;
     return;
   }
@@ -801,7 +849,7 @@ function buildHistoryCard(a) {
   card.innerHTML = `
     <img class="thumb-img" data-asset-id="${esc(a.id)}" data-fallback="${esc(imgSrc(a))}" alt="" decoding="async" />
     <span class="thumb-badge ${isGen ? 'gen' : ''}">${isGen ? '生成' : '上传'}</span>
-    ${batchMode ? '<span class="thumb-check">✓</span>' : ''}
+    ${batchMode ? '<span class="thumb-check"></span>' : ''}
     <div class="thumb-body">
       <div class="thumb-name" title="${esc(a.id)}">ID: ${esc(shortId(a.id))}</div>
       <div class="t-meta">${fmtTime(a.createdAt)}</div>
@@ -929,7 +977,7 @@ function openPreview(a, list) {
   previewIndex = Math.max(0, previewList.findIndex(x => x && x.id === a.id));
   if (previewList[previewIndex]?.id !== a.id) { previewList[0] = a; previewIndex = 0; }
   renderPreview();
-  $('#previewModal').hidden = false;
+  openModal('#previewModal');
 }
 
 function renderPreview() {
@@ -948,8 +996,8 @@ function renderPreview() {
   const row = (k, v) => `<div class="row"><span class="k">${k}</span><span>${v}</span></div>`;
   rows.push(row('素材 ID', esc(a.id)));
   rows.push(row('类型', a.type === 'generated' ? '生成图片' : '上传图片'));
-  rows.push(row('本地路径', `<a href="#" data-act="folder" style="color:var(--primary)">${esc(a.localPath)}</a>`));
-  if (a.url) rows.push(row('在线 URL', `<a href="#" data-act="url" style="color:var(--primary)">${esc(a.url)}</a>`));
+  rows.push(row('本地路径', `<a href="#" data-act="folder">${esc(a.localPath)}</a>`));
+  if (a.url) rows.push(row('在线 URL', `<a href="#" data-act="url">${esc(a.url)}</a>`));
   rows.push(row('创建时间', esc(fmtTime(a.createdAt))));
   if (a.type === 'upload') {
     rows.push(row('文件名', esc(a.fileName || '—')));
@@ -967,12 +1015,12 @@ function renderPreview() {
     if (a.maskImage) rows.push(row('遮罩图', `ID ${esc(a.maskImage.id)}<br/>&nbsp;&nbsp;&nbsp;&nbsp;路径 ${esc(a.maskImage.localPath)}`));
   }
   meta.innerHTML = rows.join('') + `
-    <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">
-      ${a.type === 'generated' ? '<button class="btn small primary" data-act="reuse">🔄 复用参数再来一张</button>' : ''}
-      ${a.type === 'generated' && a.prompt ? '<button class="btn small" data-act="copyprompt">📋 复制提示词</button>' : ''}
-      <button class="btn small" data-act="folder2">📁 打开所在文件夹</button>
-      <button class="btn small" data-act="copypath">📋 复制本地路径</button>
-      ${a.url ? '<button class="btn small" data-act="copyurl">🔗 复制在线 URL</button>' : ''}
+    <div class="preview-actions">
+      ${a.type === 'generated' ? `<button class="btn small primary" data-act="reuse">${icon('reuse')} 复用参数再来一张</button>` : ''}
+      ${a.type === 'generated' && a.prompt ? `<button class="btn small" data-act="copyprompt">${icon('copy')} 复制提示词</button>` : ''}
+      <button class="btn small" data-act="folder2">${icon('folder')} 打开所在文件夹</button>
+      <button class="btn small" data-act="copypath">${icon('copy')} 复制本地路径</button>
+      ${a.url ? `<button class="btn small" data-act="copyurl">${icon('link')} 复制在线 URL</button>` : ''}
     </div>`;
   meta.onclick = e => {
     const btn = e.target.closest('[data-act]');
@@ -983,7 +1031,7 @@ function renderPreview() {
     if (act === 'copypath') { window.api.copyText(a.localPath); toast('本地路径已复制', 'ok'); }
     if (act === 'copyurl') { window.api.copyText(a.url); toast('在线 URL 已复制', 'ok'); }
     if (act === 'copyprompt') { window.api.copyText(a.prompt); toast('提示词已复制', 'ok'); }
-    if (act === 'reuse') { $('#previewModal').hidden = true; reuseParams(a); }
+    if (act === 'reuse') { closeModal('#previewModal'); reuseParams(a); }
   };
 }
 
@@ -1000,17 +1048,149 @@ document.addEventListener('keydown', e => {
   if ($('#previewModal').hidden) return;
   if (e.key === 'ArrowLeft') { previewStep(-1); e.preventDefault(); }
   else if (e.key === 'ArrowRight') { previewStep(1); e.preventDefault(); }
-  else if (e.key === 'Escape') $('#previewModal').hidden = true;
 });
 
+/* ===== 尺寸 / 宽高比选择器 =====
+   数据源仍是 #paramSize 里的 <option>（唯一真值，复用参数回填零改动）；
+   卡片只是它的可视化投影：点卡片 → 写 select → 派发 change 让两边同步。 */
+const SIZES = [
+  { v: 'auto', label: '自动', dir: 'square' },
+  { v: '1024x1024', label: '1024²', dir: 'square' },
+  { v: '2048x2048', label: '2048²', dir: 'square' },
+  { v: '1024x1536', label: '2:3', dir: 'vertical' },
+  { v: '1536x1024', label: '3:2', dir: 'horizontal' },
+  { v: '1024x2048', label: '1:2', dir: 'vertical' },
+  { v: '2048x1024', label: '2:1', dir: 'horizontal' },
+  { v: '688x2048', label: '1:3', dir: 'vertical' },
+  { v: '2048x688', label: '3:1', dir: 'horizontal' },
+  { v: '880x2048', label: '880×2048', dir: 'vertical' },
+  { v: '2048x880', label: '2048×880', dir: 'horizontal' },
+  { v: '1152x2048', label: '9:16', dir: 'vertical' },
+  { v: '2048x1152', label: '16:9', dir: 'horizontal' },
+  { v: '1360x2048', label: '1360×2048', dir: 'vertical' },
+  { v: '2048x1360', label: '2048×1360', dir: 'horizontal' },
+  { v: '1536x2048', label: '3:4', dir: 'vertical' },
+  { v: '2048x1536', label: '4:3', dir: 'horizontal' },
+  { v: '2160x3840', label: '9:16 4K', dir: 'vertical' },
+  { v: '3840x2160', label: '16:9 4K', dir: 'horizontal' }
+];
+const SIZE_GROUPS = [
+  ['square', '正方形'], ['vertical', '竖向'], ['horizontal', '横向']
+];
+/* 按真实宽高比画小矩形：长边 30px，短边按比例（最小 8px 保证可见可点） */
+function ratioShape(v) {
+  if (v === 'auto') {
+    return '<svg width="34" height="30" viewBox="0 0 34 30" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><rect x="4.5" y="4.5" width="25" height="21" rx="3" stroke-dasharray="3 3"/><path d="M12 15h10M17 12l3 3-3 3"/></svg>';
+  }
+  const [w, h] = v.split('x').map(Number);
+  const long = 30, scale = long / Math.max(w, h);
+  const rw = Math.max(8, Math.round(w * scale)), rh = Math.max(8, Math.round(h * scale));
+  return `<svg width="34" height="30" viewBox="0 0 34 30" fill="none"><rect x="${(34 - rw) / 2}" y="${(30 - rh) / 2}" width="${rw}" height="${rh}" rx="2.5" stroke="currentColor" stroke-width="1.5"/></svg>`;
+}
+function buildRatioGrid() {
+  const sel = $('#paramSize'), grid = $('#ratioGrid');
+  if (!sel || !grid) return;
+  if (!sel.options.length) { grid.classList.add('is-empty'); return; }   // 降级：只留下拉
+  const known = new Set(SIZES.map(s => s.v));
+  const uncovered = [...sel.options].some(o => !known.has(o.value));   // 将来加尺寸时下拉兜底可见
+  grid.innerHTML = SIZE_GROUPS.map(([dir, title]) => {
+    const items = SIZES.filter(s => s.dir === dir);
+    if (!items.length) return '';
+    return `<div class="ratio-group"><div class="ratio-group-title is-${dir}">${title}</div><div class="ratio-grid">` +
+      items.map(s => {
+        const opt = [...sel.options].find(o => o.value === s.v);
+        if (!opt) return '';
+        return `<label class="ratio-item ${opt.selected ? 'checked' : ''}" data-v="${esc(s.v)}" title="${esc(opt.textContent.trim())}">
+          <input type="radio" name="ratioPick" value="${esc(s.v)}" ${opt.selected ? 'checked' : ''} tabindex="0" />
+          <span class="ratio-tag is-${dir}" aria-hidden="true">${s.label}</span>
+          <span class="ratio-shape">${ratioShape(s.v)}</span>
+          <span class="ratio-name">${esc(s.v.replace('x', ' × '))}</span>
+          <span class="ratio-check" aria-hidden="true"></span>
+        </label>`;
+      }).join('') + '</div></div>';
+  }).join('');
+  const sync = () => {
+    grid.querySelectorAll('.ratio-item').forEach(it => {
+      const on = it.dataset.v === sel.value;
+      it.classList.toggle('checked', on);
+      it.querySelector('input').checked = on;
+    });
+  };
+  grid.addEventListener('change', e => {
+    const it = e.target.closest('.ratio-item');
+    if (!it) return;
+    sel.value = it.dataset.v;
+    sel.dispatchEvent(new Event('change', { bubbles: true }));
+    sync();
+  });
+  sel.addEventListener('change', sync);   // 复用参数回填走这条路
+  if (uncovered) {
+    sel.classList.add('is-active');
+    grid.insertAdjacentHTML('beforeend', '<span class="hint">部分尺寸不在快捷选择中，请用下方下拉</span>');
+  }
+  sync();
+}
+
+/* ===== 弹窗通用可访问性：Esc 关闭、焦点进入/归还、背景 inert ===== */
+/* 顺序即 Esc 关闭优先级（从低到高，pop() 取最上层）：预览 > 选择器 > 确认。
+   与 CSS z-index 一致（preview 110 > picker/confirm 100），改顺序必须同步改 z-index。 */
+const MODALS = ['#pickerModal', '#confirmModal', '#previewModal'];
+const modalVisible = sel => { const m = $(sel); return !!m && !m.hidden; };
+function topModal() { return MODALS.filter(modalVisible).pop() || null; }   // preview 层级最高
+
+function modalFocusables(modal) {
+  return $$('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])', modal)
+    .filter(el => !el.disabled && !el.hidden && el.offsetParent !== null);
+}
 $$('[data-close]').forEach(btn => {
-  btn.addEventListener('click', () => { $('#' + btn.dataset.close).hidden = true; });
+  btn.addEventListener('click', () => closeModal('#' + btn.dataset.close));
 });
 $$('.modal-mask').forEach(mask => {
-  mask.addEventListener('click', e => { if (e.target === mask) mask.hidden = true; });
+  mask.addEventListener('click', e => { if (e.target === mask) closeModal('#' + mask.id); });
+  mask.addEventListener('keydown', e => {           // 焦点陷阱
+    if (e.key !== 'Tab') return;
+    const list = modalFocusables(mask);
+    if (!list.length) return;
+    const first = list[0], last = list[list.length - 1];
+    if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+    else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+  });
 });
+let lastFocused = null;
+function openModal(sel) {
+  const m = $(sel);
+  if (!m || !m.hidden) return;
+  lastFocused = document.activeElement;
+  m.hidden = false;
+  setBackgroundInert();
+  const f = modalFocusables(m);
+  (f.find(el => el.classList.contains('modal-close')) || f[0])?.focus();
+}
+function closeModal(sel) {
+  const m = $(sel);
+  if (!m || m.hidden) return;
+  m.hidden = true;
+  setBackgroundInert();
+  if (lastFocused && document.contains(lastFocused)) lastFocused.focus();
+}
+/* 弹窗打开时把背景设为 inert：Tab/点击/读屏都进不去（陷阱⑧） */
+function setBackgroundInert() {
+  const blocked = MODALS.some(modalVisible);
+  $$('.app').forEach(el => {
+    if (blocked) { el.setAttribute('inert', ''); el.setAttribute('aria-hidden', 'true'); }
+    else { el.removeAttribute('inert'); el.removeAttribute('aria-hidden'); }
+  });
+}
+/* Esc：最上层弹窗关闭（预览优先），Ctrl/Cmd+K 之类不抢 */
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Escape') return;
+  const top = topModal();
+  if (top) { e.preventDefault(); closeModal(top); }
+}, true);
 
 /* ===== 初始化 ===== */
+initTheme();
+buildRatioGrid();
 loadConfig();
 renderRefs();
 renderMask();
