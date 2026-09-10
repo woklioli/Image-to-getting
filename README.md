@@ -82,10 +82,15 @@ npm start
    npm run dist:win
    ```
 3. 产物在 `dist\` 目录：
-   - `AI出图平台 Setup 1.0.0.exe` —— NSIS 安装包（可选安装目录、创建桌面快捷方式）
-   - `AI出图平台 1.0.0.exe` —— portable 免安装版，双击即用
-   - `AI出图平台-1.0.0-win.zip` —— 绿色免安装压缩包
+   - `AI出图平台-Setup-1.1.0.exe` —— NSIS 安装包（可选安装目录、创建桌面快捷方式）
+   - `AI出图平台 1.1.0.exe` —— portable 免安装版，双击即用
+   - `AI出图平台-1.1.0-win.zip` —— 绿色免安装压缩包
    - `win-unpacked\` —— 解包后的完整程序目录
+
+> **覆盖安装（无需先卸载）**：直接双击新版 Setup 即可升级。`build/installer.nsh` 覆写了 electron-builder 的卸载检查
+> （`customUnInstallCheck` 清掉「卸载失败」并强制继续），`customInit` 会先 `taskkill` 结束仍在运行的旧进程减少文件占用；
+> 用户数据（`%APPDATA%\ai-image-studio`）在升级与卸载时都保留。发布新版务必同步递增 `package.json` 的 `version`，
+> 否则 NSIS 注册表版本不变，「应用和功能」里不会显示为新版本。
 
 **方式 B：在 macOS 上交叉打包 Windows 版**
 
@@ -105,7 +110,7 @@ softwareupdate --install-rosetta --agree-to-license
 ```bash
 npm run dist:mac
 ```
-产物：`dist/AI出图平台-1.0.0-arm64.dmg` 与 `.zip`（未签名，首次打开如被拦截，右键 → 打开，或在「系统设置 → 隐私与安全性」中允许）。
+产物：`dist/AI出图平台-1.1.0-arm64.dmg` 与 `.zip`（未签名，首次打开如被拦截，右键 → 打开，或在「系统设置 → 隐私与安全性」中允许）。
 
 ## 其它脚本
 
