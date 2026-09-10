@@ -1,4 +1,4 @@
-const { ipcMain, dialog, shell } = require('electron');
+const { app, ipcMain, dialog, shell, clipboard } = require('electron');
 const fs = require('fs');
 const path = require('path');
 const store = require('./store');
@@ -40,6 +40,16 @@ function registerIpc() {
       filters: [{ name: 'PNG 图片', extensions: ['png'] }]
     });
     return res.canceled ? null : res.filePaths[0];
+  });
+
+  // 读取系统剪贴板图片：有图则落盘为临时 PNG 并返回路径，无图返回 null
+  ipcMain.handle('clipboard:readImage', () => {
+    const img = clipboard.readImage();
+    if (img.isEmpty()) return null;
+    const stamp = new Date().toISOString().slice(5, 16).replace(/[T:]/g, '-');
+    const tmp = path.join(app.getPath('temp'), `粘贴图片-${stamp}.png`);
+    fs.writeFileSync(tmp, img.toPNG());
+    return tmp;
   });
 
   // ---------- 素材管理 ----------

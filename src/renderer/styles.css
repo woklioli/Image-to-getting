@@ -227,6 +227,19 @@ textarea { resize: vertical; }
   max-width: 100%; max-height: 60vh; border-radius: 8px; display: inline-block;
   background: repeating-conic-gradient(#f0f1f5 0 25%, #fafbfc 0 50%) 0 0/20px 20px;
 }
+.preview-stage { position: relative; display: inline-block; max-width: 100%; }
+.preview-nav {
+  position: absolute; top: 50%; transform: translateY(-50%);
+  width: 40px; height: 40px; border-radius: 50%; border: 0; cursor: pointer;
+  background: rgba(30,36,51,.55); color: #fff; font-size: 22px; line-height: 1;
+  display: flex; align-items: center; justify-content: center;
+}
+.preview-nav[hidden] { display: none; }
+.preview-nav:hover { background: rgba(30,36,51,.8); }
+#btnPrev { left: 10px; }
+#btnNext { right: 10px; }
+.preview-hint { font-size: 11px; color: var(--text-2); margin-top: 6px; }
+.preview-hint[hidden] { display: none; }
 .preview-meta {
   margin-top: 14px; text-align: left; font-size: 12px; color: var(--text-2);
   background: #f7f8fa; border-radius: 8px; padding: 12px 14px; line-height: 1.9;
@@ -235,6 +248,27 @@ textarea { resize: vertical; }
 .preview-meta b { color: var(--text); }
 .preview-meta .row { display: flex; gap: 8px; }
 .preview-meta .k { flex-shrink: 0; color: var(--text); font-weight: 600; min-width: 92px; }
+
+/* 长提示词两行截断（完整内容在预览弹窗查看/复制） */
+.t-sub {
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* ===== 全局拖入高亮 ===== */
+.drop-overlay {
+  position: fixed; inset: 0; z-index: 90; pointer-events: none;   /* 绝不能拦截事件 */
+  background: rgba(79,110,247,.08);
+  border: 3px dashed var(--primary);
+  display: flex; align-items: center; justify-content: center;
+}
+.drop-overlay[hidden] { display: none; }
+.drop-overlay-inner {
+  background: #fff; border-radius: 12px; padding: 18px 28px; text-align: center;
+  box-shadow: 0 10px 40px rgba(0,0,0,.18); font-size: 14px; color: var(--text);
+}
+.drop-overlay-icon { font-size: 28px; margin-bottom: 6px; }
+.card.drop-hint { outline: 2px solid var(--primary); outline-offset: 2px; }
 
 /* ===== toast ===== */
 .toast {

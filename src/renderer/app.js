@@ -35,13 +35,13 @@ function toast(msg, type = '') {
 }
 
 /* ===== 导航 ===== */
+function goToPage(page) {
+  $$('.nav-item').forEach(b => b.classList.toggle('active', b.dataset.page === page));
+  $$('.page').forEach(p => p.classList.toggle('active', p.id === `page-${page}`));
+  if (page === 'history') loadHistory();
+}
 $$('.nav-item').forEach(btn => {
-  btn.addEventListener('click', () => {
-    $$('.nav-item').forEach(b => b.classList.toggle('active', b === btn));
-    const page = btn.dataset.page;
-    $$('.page').forEach(p => p.classList.toggle('active', p.id === `page-${page}`));
-    if (page === 'history') loadHistory();
-  });
+  btn.addEventListener('click', () => goToPage(btn.dataset.page));
 });
 
 /* ===== 设置 ===== */
@@ -305,6 +305,121 @@ async function importFiles(paths, onAsset) {
   if (warnings.length) toast('部分图片上传图床失败，可稍后重试：' + warnings[0], 'err');
   return results;
 }
+
+/* ===== 全局拖拽上传 + 剪贴板粘贴 ===== */
+const IMG_EXT_RE = /\.(png|jpe?g|webp|gif)$/i;
+let dragDepth = 0;
+
+function isFileDrag(e) {
+  return Array.from(e.dataTransfer?.types || []).includes('Files');
+}
+function showDropOverlay(on) {
+  const ov = $('#dropOverlay');
+  if (ov) ov.hidden = !on;
+  $('#refCard')?.classList.toggle('drop-hint', !!on);
+  $('#maskCard')?.classList.toggle('drop-hint', !!on);
+}
+/* 落点在哪张卡片内：遮罩卡片 → 设为遮罩；其余 → 参考图。
+   覆盖层 pointer-events:none，elementFromPoint 命中的是真实元素。 */
+function cardAt(x, y) {
+  const el = document.elementFromPoint(x, y);
+  return el?.closest?.('#maskCard') ? 'mask' : 'ref';
+}
+
+/* 拖入路径集合的落地逻辑（与事件解耦，便于测试）：弹窗中忽略；ref 目标自动切调用页 */
+async function importDroppedPaths(paths, x, y) {
+  if (!paths.length) return;
+  const modalOpen = ['#pickerModal', '#confirmModal', '#previewModal'].some(sel => {
+    const m = $(sel);
+    return m && !m.hidden;
+  });
+  if (modalOpen) return;
+  const target = cardAt(x, y);
+  if (target === 'ref' && document.querySelector('.page.active')?.id !== 'page-generate') {
+    goToPage('generate');             // 任意页拖入 → 自动切到调用页
+  }
+  await addImagePaths(paths, target);
+}
+
+document.addEventListener('dragenter', e => {
+  if (!isFileDrag(e)) return;
+  e.preventDefault();
+  dragDepth++;
+  showDropOverlay(true);
+});
+document.addEventListener('dragover', e => {
+  if (!isFileDrag(e)) return;
+  e.preventDefault();                 // 必须阻止默认，否则 drop 会变成页面导航
+  e.dataTransfer.dropEffect = 'copy';
+});
+document.addEventListener('dragleave', e => {
+  if (!isFileDrag(e)) return;
+  dragDepth = Math.max(0, dragDepth - 1);
+  if (!dragDepth) showDropOverlay(false);
+});
+document.addEventListener('drop', async e => {
+  if (!isFileDrag(e)) return;
+  e.preventDefault();                 // 兜底：拖到空白处也不离开页面
+  showDropOverlay(false);
+  dragDepth = 0;
+  const { paths, rejected } = pathsFromFiles(Array.from(e.dataTransfer?.files || []));
+  rejectToast(rejected);
+  await importDroppedPaths(paths, e.clientX, e.clientY);   // 弹窗中/无可导入文件时在内部忽略
+});
+
+/* 把一组本地图片路径加入参考图或遮罩（拖拽与粘贴共用） */
+async function addImagePaths(paths, target) {
+  if (target === 'mask') {
+    const results = await window.api.importFiles([paths[0]]);
+    const ok = results.find(r => r.ok);
+    if (!ok) { toast('图片导入失败：' + (results[0]?.error || '未知错误'), 'err'); return false; }
+    maskAsset = ok.asset;
+    renderMask();
+    toast(paths.length > 1 ? `遮罩仅取第 1 张（忽略 ${paths.length - 1} 张）` : '已设为遮罩图', 'ok');
+    if (ok.warning) toast('遮罩图已保存但上传图床失败：' + ok.warning, 'err');
+    return true;
+  }
+  await importFiles(paths, a => { if (!refAssets.some(x => x.id === a.id)) refAssets.push(a); });
+  renderRefs();
+  return true;
+}
+
+/* File[] → 合法本地图片路径（Electron 33 走 webUtils）。rejected 由调用方决定是否提示：
+   拖拽要报「格式不支持」，粘贴截图时 clipboardData.files 本就是空的，不该打扰用户。 */
+function pathsFromFiles(files) {
+  const paths = [];
+  const rejected = [];
+  for (const f of files) {
+    // 从浏览器/其他应用拖入的「虚拟文件」没有本地路径，getPathForFile 会抛错
+    let p = '';
+    try { p = window.api.getPathForFile(f) || ''; } catch { p = ''; }
+    if (p && IMG_EXT_RE.test(p)) paths.push(p);
+    else rejected.push(f.name || p || '未知文件');
+  }
+  return { paths, rejected };
+}
+function rejectToast(rejected) {
+  if (!rejected.length) return;
+  toast(`仅支持 PNG/JPEG/WebP/GIF，已忽略：${rejected.slice(0, 3).join('、')}${rejected.length > 3 ? ` 等 ${rejected.length} 项` : ''}`, 'err');
+}
+
+document.addEventListener('paste', async e => {
+  const t = e.target;
+  const genActive = document.querySelector('.page.active')?.id === 'page-generate';
+  if (!genActive && !t?.closest?.('#page-generate')) return;
+  if (e.clipboardData?.getData('text')) return;   // 有文字 ⇒ 粘贴文本，不拦截默认行为
+  e.preventDefault();
+  const target = t?.closest?.('#maskCard') ? 'mask' : 'ref';
+  // 优先用 paste 事件自带的文件（从访达/资源管理器复制的文件），
+  // 没有再读系统剪贴板位图（截图），避免误取文件图标缩略图
+  let { paths } = pathsFromFiles(Array.from(e.clipboardData?.files || []));
+  if (!paths.length) {
+    const p = await window.api.pasteImage();
+    if (p) paths = [p];
+  }
+  if (!paths.length) { toast('剪贴板里没有图片 — 可先截图再粘贴，或拖拽文件'); return; }
+  await addImagePaths(paths, target);
+});
 
 /* ===== 历史素材选择弹窗 ===== */
 let pickerTab = 'upload';
@@ -712,7 +827,7 @@ function buildHistoryCard(a) {
         e.stopPropagation();
         if (btn.dataset.act === 'del') return deleteSingleAsset(a);
         if (btn.dataset.act === 'folder') return window.api.showItem(a.localPath);
-        return openPreview(a);
+        return openPreview(a, filteredHistoryAssets().slice(0, historyRendered));
       }
       if (batchSelected.has(a.id)) batchSelected.delete(a.id); else batchSelected.add(a.id);
       card.classList.toggle('selected', batchSelected.has(a.id));
@@ -723,7 +838,7 @@ function buildHistoryCard(a) {
     const act = btn ? btn.dataset.act : null;
     if (act === 'folder') return window.api.showItem(a.localPath);
     if (act === 'del') return deleteSingleAsset(a);
-    openPreview(a);
+    openPreview(a, filteredHistoryAssets().slice(0, historyRendered));
   });
   return card;
 }
@@ -805,10 +920,29 @@ async function reuseParams(a) {
   else toast('参数已复用，可直接生成', 'ok');
 }
 
-/* ===== 大图预览 / 详情 ===== */
-function openPreview(a) {
+/* ===== 大图预览 / 详情（支持 ←/→ 翻页、Esc 关闭） ===== */
+let previewList = [];     // 当前预览上下文（结果列表 / 历史列表）
+let previewIndex = 0;
+
+function openPreview(a, list) {
+  previewList = Array.isArray(list) && list.length ? list : [a];
+  previewIndex = Math.max(0, previewList.findIndex(x => x && x.id === a.id));
+  if (previewList[previewIndex]?.id !== a.id) { previewList[0] = a; previewIndex = 0; }
+  renderPreview();
+  $('#previewModal').hidden = false;
+}
+
+function renderPreview() {
+  const a = previewList[previewIndex];
+  if (!a) return;
+  const multi = previewList.length > 1;
   $('#previewImg').src = imgSrc(a);
-  $('#previewTitle').textContent = a.type === 'generated' ? `生成图 ${shortId(a.id)}` : `上传图 ${shortId(a.id)}`;
+  $('#previewTitle').textContent =
+    (a.type === 'generated' ? `生成图 ${shortId(a.id)}` : `上传图 ${shortId(a.id)}`) +
+    (multi ? `（${previewIndex + 1}/${previewList.length}）` : '');
+  $('#btnPrev').hidden = !multi;
+  $('#btnNext').hidden = !multi;
+  $('#previewHint').hidden = !multi;
   const meta = $('#previewMeta');
   const rows = [];
   const row = (k, v) => `<div class="row"><span class="k">${k}</span><span>${v}</span></div>`;
@@ -851,8 +985,23 @@ function openPreview(a) {
     if (act === 'copyprompt') { window.api.copyText(a.prompt); toast('提示词已复制', 'ok'); }
     if (act === 'reuse') { $('#previewModal').hidden = true; reuseParams(a); }
   };
-  $('#previewModal').hidden = false;
 }
+
+function previewStep(d) {
+  if (previewList.length < 2) return;
+  previewIndex = (previewIndex + d + previewList.length) % previewList.length;   // 循环翻页
+  renderPreview();
+}
+$('#btnPrev')?.addEventListener('click', () => previewStep(-1));
+$('#btnNext')?.addEventListener('click', () => previewStep(1));
+
+/* 键盘：预览打开时 ←/→ 翻页，Esc 关闭 */
+document.addEventListener('keydown', e => {
+  if ($('#previewModal').hidden) return;
+  if (e.key === 'ArrowLeft') { previewStep(-1); e.preventDefault(); }
+  else if (e.key === 'ArrowRight') { previewStep(1); e.preventDefault(); }
+  else if (e.key === 'Escape') $('#previewModal').hidden = true;
+});
 
 $$('[data-close]').forEach(btn => {
   btn.addEventListener('click', () => { $('#' + btn.dataset.close).hidden = true; });

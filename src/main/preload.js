@@ -1,4 +1,4 @@
-const { contextBridge, ipcRenderer, clipboard } = require('electron');
+const { contextBridge, ipcRenderer, clipboard, webUtils } = require('electron');
 const { pathToFileURL } = require('url');
 
 contextBridge.exposeInMainWorld('api', {
@@ -7,9 +7,12 @@ contextBridge.exposeInMainWorld('api', {
   saveConfig: (patch) => ipcRenderer.invoke('config:save', patch),
   getDataDir: () => ipcRenderer.invoke('app:dataDir'),
 
-  // 文件选择
+  // 文件选择 / 拖拽 / 粘贴
   pickImages: () => ipcRenderer.invoke('dialog:pickImages'),
   pickMask: () => ipcRenderer.invoke('dialog:pickMask'),
+  pasteImage: () => ipcRenderer.invoke('clipboard:readImage'),
+  // Electron 33：File.path 已移除，拖拽取路径必须走 webUtils（同步）
+  getPathForFile: (file) => webUtils.getPathForFile(file),
 
   // 素材
   listAssets: (type) => ipcRenderer.invoke('asset:list', type),

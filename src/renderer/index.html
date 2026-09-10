@@ -51,10 +51,10 @@
           </div>
         </div>
 
-        <div class="card">
+        <div class="card" id="refCard">
           <div class="card-title">
             参考图 <span class="req">*</span>
-            <span class="hint">支持多张（接口将以图片数组提交），支持 PNG / JPEG / WebP / GIF</span>
+            <span class="hint">支持多张（接口将以图片数组提交），PNG / JPEG / WebP / GIF，可直接拖入或 Ctrl/Cmd+V 粘贴</span>
           </div>
           <div class="ref-toolbar">
             <button class="btn primary" id="btnUploadRef">📤 上传图片</button>
@@ -66,9 +66,9 @@
           </div>
         </div>
 
-        <div class="card">
+        <div class="card" id="maskCard">
           <div class="card-title">
-            遮罩图 <span class="hint">可选，须为带 alpha 通道的 PNG，透明区域表示需要编辑的位置</span>
+            遮罩图 <span class="hint">可选，须为带 alpha 通道的 PNG，透明区域表示需要编辑的位置；也可拖到此处</span>
           </div>
           <div class="ref-toolbar">
             <button class="btn" id="btnPickMask">选择遮罩图</button>
@@ -287,9 +287,22 @@
         <button class="modal-close" data-close="previewModal">✕</button>
       </div>
       <div class="modal-body preview-body">
-        <img id="previewImg" alt="预览" />
+        <div class="preview-stage">
+          <button class="preview-nav" id="btnPrev" aria-label="上一张" hidden>‹</button>
+          <img id="previewImg" alt="预览" />
+          <button class="preview-nav" id="btnNext" aria-label="下一张" hidden>›</button>
+        </div>
+        <div class="preview-hint" id="previewHint">← / → 翻页，Esc 关闭</div>
         <div class="preview-meta" id="previewMeta"></div>
       </div>
+    </div>
+  </div>
+
+  <!-- 全局拖入高亮层（pointer-events:none，永不拦截 drop 事件） -->
+  <div class="drop-overlay" id="dropOverlay" hidden>
+    <div class="drop-overlay-inner">
+      <div class="drop-overlay-icon">⬇️</div>
+      <div>松开即上传为<b>参考图</b> · 拖到「遮罩图」卡片内可设为遮罩</div>
     </div>
   </div>
 
