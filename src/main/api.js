@@ -323,7 +323,9 @@ async function generateImagesOpenAI({ imageFiles, maskFile, prompt, params, conf
       signal
     });
   } else {
-    requestBody = { ...common, background: params.background || 'auto' };
+    // background 仅在用户显式选择时发送（官方默认即 auto；部分 OpenAI 兼容网关不认多余参数）
+    requestBody = { ...common };
+    if (params.background && params.background !== 'auto') requestBody.background = params.background;
     res = await postJson(endpoint, requestBody, config.apiKey, signal);
   }
 
