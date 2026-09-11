@@ -101,8 +101,9 @@ async function uploadFile(localPath, uploadUrl, opts = {}) {
       if (outerSignal && outerSignal.aborted) throw new Error('用户已取消');
       lastErr = e;
       const msg = e?.message || String(e);
-      // 内部超时（AbortError 且未被外部取消）也归为可重试的网络类错误
-      const retriable = /fetch failed|aborted|timeout|network|ENOTFOUND|ECONNRESET|ETIMEDOUT|EOF|socket/i.test(msg);
+      // 内部超时（AbortError 且未被外部取消）也归为可重试的网络类错误；
+      // 「无法解析/未找到链接」多为图床临时返回反爬限流 HTML 页（瞬态），同样值得重试
+      const retriable = /fetch failed|aborted|timeout|network|ENOTFOUND|ECONNRESET|ETIMEDOUT|EOF|socket|无法解析|未找到图片链接|just a moment|cloudflare/i.test(msg);
       if (attempt < 3 && retriable) {
         await sleep(1000 * attempt, outerSignal);   // 重试间隔也能被取消打断
         continue;
