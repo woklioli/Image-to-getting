@@ -190,6 +190,20 @@ async function resolveImage(item, signal) {
   return { buffer: Buffer.from(item.replace(/\s/g, ''), 'base64'), ext: '.png', url: '' };
 }
 
+/** 常见渠道错误的人话翻译（成本由用户在渠道侧自担：余额/配额问题引导去渠道处理） */
+function friendlyApiError(status, text) {
+  if (/not enough balance|insufficient (balance|quota)|no balance/i.test(text)) {
+    return `渠道账户余额不足（HTTP ${status}），请前往渠道充值或更换有余额的 API Key`;
+  }
+  if (/invalid (api )?key|unauthorized|authentication/i.test(text) && status === 401) {
+    return 'API Key 无效或未授权（HTTP 401），请在「设置」中检查当前模型的密钥';
+  }
+  if (status === 429 || /rate limit|too many requests/i.test(text)) {
+    return `渠道限流（HTTP ${status}），稍等片刻再试`;
+  }
+  return null;
+}
+
 /** 出参统一处理：解析 { images } / { data }，逐张转 buffer；取消时带回部分结果 */
 async function parseImages(data, text, signal, requestBody, endpoint) {
   const images = data.images || data.data || [];
@@ -272,7 +286,7 @@ async function generateImages(opts) {
   const res = await postJson(endpoint, body, config.apiKey, signal);
   const text = await res.text();
   if (!res.ok) {
-    throw new Error(`生图接口调用失败 (HTTP ${res.status})：${text.slice(0, 800)}`);
+    throw new Error(friendlyApiError(res.status, text) || `生图接口调用失败 (HTTP ${res.status})：${text.slice(0, 800)}`);
   }
   let data;
   try {
@@ -332,7 +346,7 @@ async function generateImagesOpenAI({ imageFiles, maskFile, prompt, params, conf
 
   const text = await res.text();
   if (!res.ok) {
-    throw new Error(`生图接口调用失败 (HTTP ${res.status})：${text.slice(0, 800)}`);
+    throw new Error(friendlyApiError(res.status, text) || `生图接口调用失败 (HTTP ${res.status})：${text.slice(0, 800)}`);
   }
   let data;
   try {
