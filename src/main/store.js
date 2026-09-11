@@ -8,7 +8,16 @@ const DEFAULT_CONFIG = {
   apiKey: '',
   uploadUrl: 'https://tmpfile.link/api/upload',
   models: [
-    { id: 'model-default', name: 'GPT Image 2 编辑', baseUrl: '', modelPath: 'v3/gpt-image-2-edit', apiKey: '' }
+    { id: 'model-default', name: 'GPT Image 2 编辑', baseUrl: '', modelPath: 'v3/gpt-image-2-edit', apiKey: '', apiType: 'custom', modelName: '' },
+    {
+      id: 'model-openai-gpt-image-2',
+      name: 'OpenAI GPT Image 2',
+      baseUrl: 'https://api.openai.com/v1',
+      modelPath: '',                 // 留空：无参考图自动走 images/generations，有参考图走 images/edits
+      apiKey: '',                    // 需要用户填入自己的 OpenAI Key
+      apiType: 'openai',
+      modelName: 'gpt-image-2'
+    }
   ],
   activeModelId: 'model-default',
   theme: 'system'          // system | light | dark
@@ -76,10 +85,22 @@ function getConfig() {
     name: m.name || m.modelPath || '未命名模型',
     baseUrl: m.baseUrl ?? '',
     modelPath: m.modelPath || '',
-    apiKey: m.apiKey ?? ''
+    apiKey: m.apiKey ?? '',
+    // 接口类型：custom=聚合站编辑接口（默认，图片走图床 URL）；openai=官方 Images API（本地文件直传，可纯文生图）
+    apiType: m.apiType === 'openai' ? 'openai' : 'custom',
+    modelName: m.modelName ?? ''   // openai 模式请求体里的 model 字段（如 gpt-image-2）
   }));
   if (!cfg.models.some(m => m.id === cfg.activeModelId)) cfg.activeModelId = cfg.models[0].id;
   if (!['system', 'light', 'dark'].includes(cfg.theme)) cfg.theme = 'system';
+  // 一次性迁移：为老配置补上 OpenAI GPT Image 2 渠道预设（用户可在设置里删除/改 Key）
+  if (!cfg.openaiPresetAdded) {
+    if (!cfg.models.some(m => m.id === 'model-openai-gpt-image-2')) {
+      const preset = DEFAULT_CONFIG.models.find(m => m.id === 'model-openai-gpt-image-2');
+      if (preset) cfg.models.push({ ...preset });
+    }
+    cfg.openaiPresetAdded = true;
+    writeJson(configPath, cfg);   // 直接落盘（saveConfig 内部会再调 getConfig，避免递归）
+  }
   return cfg;
 }
 

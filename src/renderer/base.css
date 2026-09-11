@@ -215,6 +215,18 @@ select { cursor: pointer; }
   padding: 2px 7px; border-radius: var(--r-pill);
 }
 .thumb-badge.gen { background: oklch(46% 0.16 265 / 0.92); }
+
+/* 上传中占位卡（参考图导入实时反馈）：本地缩略图 + 角标 spinner，禁止点击预览 */
+.thumb-pending { cursor: default; }
+.thumb-pending:hover { transform: none; }
+.thumb-uploading {
+  position: absolute; top: 6px; left: 6px;
+  display: inline-flex; align-items: center; gap: 5px;
+  background: oklch(20% 0.02 265 / 0.78); color: #fff; font-size: 10px;
+  padding: 2px 8px 2px 6px; border-radius: var(--r-pill);
+}
+.thumb-uploading svg.i { font-size: 11px; animation: i-spin 0.9s linear infinite; }
+.thumb-pending .up-state { color: var(--text-3); }
 .thumb-check {
   position: absolute; top: 6px; right: 6px;
   width: 22px; height: 22px; border-radius: 50%;

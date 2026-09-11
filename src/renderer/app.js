@@ -110,13 +110,24 @@ function renderModelList() {
         <button class="btn ghost small model-del" aria-label="删除模型 ${esc(m.name || m.modelPath)}">${icon('trash')} 删除</button>
       </div>
       <div class="model-fields">
+        <label class="field">
+          <span>接口类型</span>
+          <select data-f="apiType">
+            <option value="custom" ${m.apiType !== 'openai' ? 'selected' : ''}>聚合站编辑接口（图床 URL）</option>
+            <option value="openai" ${m.apiType === 'openai' ? 'selected' : ''}>OpenAI 官方 Images API</option>
+          </select>
+        </label>
+        <label class="field">
+          <span>模型名 model ${m.apiType === 'openai' ? '<span class="req">*</span>' : ''}</span>
+          <input type="text" data-f="modelName" value="${esc(m.modelName || '')}" placeholder="gpt-image-2" ${m.apiType === 'openai' ? '' : 'disabled'} />
+        </label>
         <label class="field full">
-          <span>接口路径 modelPath <span class="req">*</span></span>
-          <input type="text" data-f="modelPath" value="${esc(m.modelPath)}" placeholder="v3/gpt-image-2-edit" />
+          <span>接口路径 modelPath ${m.apiType === 'openai' ? '（可留空：自动 images/generations｜edits）' : '<span class="req">*</span>'}</span>
+          <input type="text" data-f="modelPath" value="${esc(m.modelPath)}" placeholder="${m.apiType === 'openai' ? '留空 = https://…/v1/images/generations' : 'v3/gpt-image-2-edit'}" />
         </label>
         <label class="field">
           <span>专属 Base URL（留空用全局）</span>
-          <input type="text" data-f="baseUrl" value="${esc(m.baseUrl || '')}" placeholder="留空使用全局 Base URL" />
+          <input type="text" data-f="baseUrl" value="${esc(m.baseUrl || '')}" placeholder="${m.apiType === 'openai' ? 'https://api.openai.com/v1' : '留空使用全局 Base URL'}" />
         </label>
         <label class="field">
           <span>专属 API Key（留空用全局）</span>
@@ -129,6 +140,13 @@ function renderModelList() {
         const cur = (settingsCfg.models || []).find(x => x.id === m.id);
         if (cur) cur[inp.dataset.f] = inp.value;
       });
+    });
+    // 接口类型切换：模型名必填标记 / 占位符随模式变化，需重建该卡片
+    item.querySelector('[data-f="apiType"]').addEventListener('change', e => {
+      const cur = (settingsCfg.models || []).find(x => x.id === m.id);
+      if (cur) cur.apiType = e.target.value;
+      renderModelList();
+      renderActiveModelSelect(settingsCfg);
     });
     item.querySelector('.model-del').addEventListener('click', () => {
       if (settingsCfg.models.length <= 1) return toast('至少保留一个模型', 'err');
@@ -162,10 +180,12 @@ function syncModelActiveState() {
 
 function collectConfigFromForm() {
   const models = $$('#modelList .model-item').map(item => {
-    const get = f => item.querySelector(`[data-f="${f}"]`).value.trim();
+    const get = f => item.querySelector(`[data-f="${f}"]`)?.value.trim() || '';
     const old = settingsCfg.models.find(x => x.id === item.dataset.id) || {};
-    return { id: item.dataset.id || old.id, name: get('name') || get('modelPath') || '未命名模型',
-      modelPath: get('modelPath'), baseUrl: get('baseUrl'), apiKey: get('apiKey') };
+    const apiType = get('apiType') || 'custom';
+    return { id: item.dataset.id || old.id, name: get('name') || get('modelPath') || get('modelName') || '未命名模型',
+      modelPath: get('modelPath'), baseUrl: get('baseUrl'), apiKey: get('apiKey'),
+      apiType, modelName: get('modelName') };
   });
   // 单选选中的为 active（radio 状态可能已同步到 settingsCfg，这里再兜底读 DOM）
   const checked = $('#modelList .model-item input[type=radio]:checked');
@@ -184,15 +204,21 @@ function collectConfigFromForm() {
 
 $('#btnAddModel').addEventListener('click', () => {
   const id = 'model-' + Date.now();
-  settingsCfg.models.push({ id, name: '', baseUrl: '', modelPath: '', apiKey: '' });
+  settingsCfg.models.push({ id, name: '', baseUrl: '', modelPath: '', apiKey: '', apiType: 'custom', modelName: '' });
   settingsCfg.activeModelId = id;
   renderModelList();
 });
 
 $('#btnSaveConfig').addEventListener('click', async () => {
   const patch = collectConfigFromForm();
-  if (!patch.models.length || !patch.models[0].modelPath) {
-    return toast('请至少填写一个模型的接口路径', 'err');
+  // 逐模型校验：OpenAI 官方渠道 modelPath 可留空（自动 generations/edits），但必须有模型名；
+  // 聚合站编辑接口必须有接口路径。（旧版只查 models[0].modelPath，会误拦留空路径的 OpenAI 模型）
+  const bad = patch.models.find(m => (m.apiType === 'openai' ? !m.modelName : !m.modelPath));
+  if (!patch.models.length) return toast('请至少配置一个模型', 'err');
+  if (bad) {
+    return toast(bad.apiType === 'openai'
+      ? `模型「${bad.name || '未命名'}」缺少模型名（如 gpt-image-2）`
+      : `模型「${bad.name || '未命名'}」缺少接口路径 modelPath`, 'err');
   }
   settingsCfg = await window.api.saveConfig(patch);
   renderModelList();
@@ -214,7 +240,10 @@ function renderActiveModelSelect(cfg) {
   (cfg.models || []).forEach(m => {
     const opt = document.createElement('option');
     opt.value = m.id;
-    opt.textContent = `${m.name || m.modelPath}（${(m.baseUrl || cfg.baseUrl || '').replace(/^https?:\/\//, '')}/${m.modelPath}）`;
+    const target = m.apiType === 'openai' && !m.modelPath
+      ? `${(m.baseUrl || cfg.baseUrl || '').replace(/^https?:\/\//, '')}/${m.modelName || 'gpt-image-2'}`
+      : `${(m.baseUrl || cfg.baseUrl || '').replace(/^https?:\/\//, '')}/${m.modelPath}`;
+    opt.textContent = `${m.name || m.modelPath}（${target}）`;
     sel.appendChild(opt);
   });
   sel.value = cfg.activeModelId;
@@ -334,17 +363,92 @@ $('#btnPickMask').addEventListener('click', async () => {
 });
 $('#btnClearMask').addEventListener('click', () => { maskAsset = null; renderMask(); });
 
+/* ===== 上传中实时反馈 =====
+   选完文件立即在参考图区插入「正在上传」占位卡（本地缩略图 + spinner 角标），
+   主进程每完成一张就推 asset:importProgress，占位卡原位更新为最终状态；
+   全部结束后再统一 renderRefs 接管按钮事件（占位阶段不绑定交互）。 */
+let importSeq = 0;
+const IMPORTS = {};                 // batchId -> { received, total }
+
+window.api.onImportProgress(ev => {
+  const st = IMPORTS[ev.batchId];
+  if (ev.status === 'imported') {
+    if (st) st.received++;
+    insertPendingCard(ev);
+  } else if (ev.status === 'uploaded' || ev.status === 'failed') {
+    updatePendingCard(ev);
+  }
+  // status='error'（连本地入库都失败）：没有卡片可更新，importFiles 返回值里统一 toast
+  if (st && st.received >= st.total) delete IMPORTS[ev.batchId];
+  // 不做整体重绘：占位卡已原位更新为最终态，调用方随后的 renderRefs 会正式接管
+});
+
+function pendingCard(ev) {
+  return [...$('#refList').querySelectorAll('.thumb-pending')].find(c => c.dataset.localPath === ev.localPath);
+}
+
+function insertPendingCard(ev) {
+  const grid = $('#refList');
+  const empty = grid.querySelector('.empty-tip');
+  if (empty) empty.remove();   // 占位卡与「尚未添加」空态互斥，收尾 renderRefs 会重建
+  const card = document.createElement('div');
+  card.className = 'thumb thumb-pending';
+  card.dataset.localPath = ev.localPath;
+  card.innerHTML = `
+    <img class="thumb-img" src="${esc(window.api.toFileUrl(ev.asset.localPath))}" alt="" />
+    <span class="thumb-uploading">${icon('cloud-up')} 正在上传</span>
+    <div class="thumb-body">
+      <div class="thumb-name">${esc(ev.asset.fileName || '')}</div>
+      <div class="up-state">上传中… ${ev.index + 1}/${ev.total}</div>
+    </div>`;
+  card.dataset.status = 'up';
+  grid.appendChild(card);
+}
+
+function updatePendingCard(ev) {
+  const card = pendingCard(ev);
+  if (!card) return;
+  const badge = card.querySelector('.thumb-uploading');
+  if (badge) badge.remove();
+  card.dataset.status = ev.status === 'uploaded' ? 'ok' : 'retry';
+  const state = card.querySelector('.up-state');
+  if (ev.status === 'uploaded') {
+    if (state) state.textContent = '已上传图床';
+  } else {
+    if (state) state.innerHTML = `<button class="thumb-retry" data-act="retry">${icon('cloud-up')} 重试上传</button>`;
+    card.querySelector('[data-act="retry"]')?.addEventListener('click', async e => {
+      e.stopPropagation();
+      const b = e.currentTarget;
+      b.disabled = true; b.textContent = '上传中…';
+      try {
+        const updated = await window.api.ensureUploaded(ev.asset.id);
+        const cur = refAssets.find(x => x.id === ev.asset.id);
+        if (cur) Object.assign(cur, updated);
+        renderRefs();
+        toast('已补传图床', 'ok');
+      } catch (err) {
+        toast('重试上传失败：' + (err.message || err), 'err');
+        b.disabled = false; b.innerHTML = icon('cloud-up') + ' 重试上传';
+      }
+    });
+  }
+}
+
 async function importFiles(paths, onAsset) {
-  toast('正在上传图片…');
-  const results = await window.api.importFiles(paths);
+  const batchId = 'b' + (++importSeq);
+  IMPORTS[batchId] = { received: 0, total: paths.length };
+  const results = await window.api.importFiles(paths, batchId);
   let okCount = 0;
   const warnings = [];
   for (const r of results) {
     if (r.ok) { okCount++; if (onAsset) onAsset(r.asset); if (r.warning) warnings.push(r.warning); }
-    else toast(`「${r.fileName}」上传失败：${r.error}`, 'err');
+    else toast(`「${r.fileName}」导入失败：${r.error}`, 'err');
   }
   if (okCount) toast(`成功导入 ${okCount} 张图片`, 'ok');
-  if (warnings.length) toast('部分图片上传图床失败，可稍后重试：' + warnings[0], 'err');
+  if (warnings.length) toast('部分图片上传图床失败，可点击卡片上的「重试上传」：' + warnings[0], 'err');
+  // 兜底收尾：占位卡已原位更新为最终态，这里统一重建为正式卡（接管预览/重试按钮事件）。
+  // 进度事件与 invoke 回包同源有序，此时全部占位卡都已落定。
+  renderRefs();
   return results;
 }
 
@@ -527,6 +631,26 @@ $$('#pickerModal [data-ptab]').forEach(btn => {
     loadPickerGrid();
   });
 });
+/* 图床外链 24h 过期的兜底：导入历史素材后后台刷新（ensureUploaded 内置 TTL 判定，
+   新鲜的直接返回不发网络请求；超龄的自动重传换新 URL）。失败不打断使用——
+   点「重试上传」或生成前的主进程兜底都还有机会。 */
+const staleRefreshSeq = new Set();
+async function refreshStaleUrl(asset) {
+  if (!asset || staleRefreshSeq.has(asset.id)) return;
+  // OpenAI 官方渠道本地文件直传、不消费图床 URL，无需刷新（省一次外网请求）
+  const am = (settingsCfg.models || []).find(x => x.id === settingsCfg.activeModelId);
+  if (am && am.apiType === 'openai') return;
+  staleRefreshSeq.add(asset.id);
+  try {
+    const fresh = await window.api.ensureUploaded(asset.id);
+    if (fresh && fresh.url !== asset.url) {
+      Object.assign(asset, fresh);
+      renderRefs();
+    }
+  } catch { /* 静默：卡片上的「重试上传」与生成前兜底仍在 */ }
+  finally { staleRefreshSeq.delete(asset.id); }
+}
+
 $('#btnPickerConfirm').addEventListener('click', async () => {
   if (pickerSelected.size === 0) { toast('请至少选择一张图片'); return; }
   const added = [];
@@ -537,6 +661,7 @@ $('#btnPickerConfirm').addEventListener('click', async () => {
   closeModal('#pickerModal');
   renderRefs();
   toast(`已添加 ${added.length} 张参考图`, 'ok');
+  added.forEach(refreshStaleUrl);   // 超 24h 的后台自动换链接，不阻塞当前操作
   if (pickerOnConfirm) { pickerOnConfirm(added); pickerOnConfirm = null; }
 });
 $('#btnPickHistory').addEventListener('click', () => openPicker());
@@ -594,7 +719,9 @@ $('#genStop').addEventListener('click', async () => {
 $('#btnGenerate').addEventListener('click', async () => {
   if (genRunning) return;   // 防重复点击
   const prompt = $('#prompt').value.trim();
-  if (refAssets.length === 0) return toast('请先添加至少一张参考图', 'err');
+  // OpenAI 官方渠道支持纯文生图；其余（聚合站编辑接口）必须有参考图
+  const activeM = (settingsCfg.models || []).find(x => x.id === settingsCfg.activeModelId);
+  if (refAssets.length === 0 && activeM?.apiType !== 'openai') return toast('请先添加至少一张参考图', 'err');
   if (!prompt) return toast('请填写提示词', 'err');
 
   const params = {
@@ -631,7 +758,10 @@ $('#btnGenerate').addEventListener('click', async () => {
         toast('已取消生成');
       }
     } else {
-      setProgress('', `完成（${secs}s），本次生成 ${res.images.length} 张图片，已保存到历史素材`);
+      const u = res.usage && res.usage.total_tokens != null
+        ? ` · tokens ${res.usage.total_tokens}（输入 ${res.usage.input_tokens ?? '-'} / 输出 ${res.usage.output_tokens ?? '-'}）`
+        : '';
+      setProgress('', `完成（${secs}s），本次生成 ${res.images.length} 张图片，已保存到历史素材${u}`);
       toast(`生成成功，共 ${res.images.length} 张`, 'ok');
       renderResults(res.images);
     }
@@ -911,8 +1041,10 @@ async function reuseParams(a) {
   settingsCfg = await window.api.getConfig();
   const cfg = settingsCfg;
 
-  // 1. 模型：优先按 modelPath 匹配（模型 id 可能已变），失配则提示重选并停留当前
-  const byPath = (cfg.models || []).find(m => m.modelPath === a.modelPath);
+  // 1. 模型：优先按 modelPath 匹配（模型 id 可能已变）；OpenAI 渠道记录 modelPath 为空，改按名称匹配；失配则提示重选并停留当前
+  const byPath = (cfg.models || []).find(m => m.modelPath
+    ? m.modelPath === a.modelPath
+    : !(a.modelPath || '') && m.name === a.model);
   const modelOk = !!byPath;
   if (modelOk && cfg.activeModelId !== byPath.id) {
     settingsCfg = await window.api.saveConfig({ activeModelId: byPath.id });
@@ -932,6 +1064,7 @@ async function reuseParams(a) {
   }
   refAssets = refs;
   renderRefs();
+  refs.forEach(refreshStaleUrl);   // 复用时同样兜底：超 24h 的历史参考图后台重传换 URL
 
   // 3. 遮罩
   maskAsset = null;
