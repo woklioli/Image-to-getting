@@ -13,9 +13,25 @@
 .progress.canceled { color: var(--text-3); font-weight: var(--fw-2); }
 .gen-elapsed { font-variant-numeric: tabular-nums; color: inherit; opacity: 0.8; font-size: 12px; }
 
-/* 当前模型选择 */
-.model-pick { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-.model-pick select { flex: 1; min-width: 260px; max-width: 460px; }
+/* 当前模型：全宽横条（标题左、控件右），不再是独立大卡 */
+.model-bar { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; padding: 12px 20px; }
+.model-bar .card-title { margin-bottom: 0; }
+.model-bar .hint { margin-left: 4px; }
+.model-pick { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-left: auto; }
+.model-pick select { flex: 1; min-width: 220px; max-width: 400px; }
+
+/* 遮罩 = 左栏内的次级卡：收浅内边距、弱底色，提示可选 */
+.card.card-sub {
+  background: var(--bg-raised); border-style: dashed;
+  padding: 14px 16px; box-shadow: none;
+}
+.card.card-sub .card-title { font-weight: var(--fw-2); color: var(--text-2); }
+
+/* 右栏窄列里，参数网格优先两列小控件；比例卡随栏宽回流 */
+.workbench .form-grid { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
+.workbench .ratio-grid { grid-template-columns: repeat(auto-fill, minmax(76px, 1fr)); }
+/* 右栏缩略图（结果卡）在窄列里回到默认尺寸档 */
+.workbench .thumb-grid { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); }
 
 /* 尺寸字段占满整行（在 form-grid 里） */
 .field.full-ratio { grid-column: 1 / -1; }

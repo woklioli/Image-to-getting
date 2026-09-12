@@ -1,4 +1,11 @@
-/* ===== 设置页：模型列表 ===== */
+/* ===== 设置页：两栏工作台 ===== */
+/* 卡片统一撑满所在列/整宽（覆盖 base.css 的 .form-card 640px 限宽） */
+#page-settings .form-card { max-width: none; }
+.workbench-settings .appearance-row { flex-direction: column; align-items: stretch; gap: 8px; }
+.workbench-settings .theme-seg { width: 100%; }
+.workbench-settings .theme-seg button { flex: 1; justify-content: center; }
+
+/* ===== 模型列表 ===== */
 .model-item {
   border: 1px solid var(--border-1); border-radius: var(--r-lg);
   padding: 14px; margin-bottom: 10px; background: var(--bg-raised);
@@ -7,8 +14,9 @@
 .model-item.active { border-color: var(--accent); background: var(--accent-soft); }
 .model-head { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
 .model-head input[type="radio"] { width: auto; flex-shrink: 0; cursor: pointer; accent-color: var(--accent); }
-.model-name-input { flex: 1; font-weight: 600; }
-.model-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.model-name-input { flex: 1; min-width: 0; font-weight: 600; }
+/* 模型卡现在位于右窄栏：字段纵向单列排布（原双列会挤爆长 URL） */
+.model-fields { display: grid; grid-template-columns: 1fr; gap: 10px; }
 .model-fields .field.full { grid-column: 1 / -1; }
 .model-del { flex-shrink: 0; }
 

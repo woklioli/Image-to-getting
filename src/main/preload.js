@@ -29,8 +29,14 @@ contextBridge.exposeInMainWorld('api', {
   deleteAsset: (id) => ipcRenderer.invoke('asset:delete', id),
   deleteMany: (ids, opts) => ipcRenderer.invoke('asset:deleteMany', ids, opts),
   thumbnail: (id) => ipcRenderer.invoke('asset:thumbnail', id),
-  importFiles: (paths) => ipcRenderer.invoke('asset:importFiles', paths),
+  importFiles: (paths, batchId) => ipcRenderer.invoke('asset:importFiles', paths, batchId),
   ensureUploaded: (id) => ipcRenderer.invoke('asset:ensureUploaded', id),
+  // 逐张导入进度：{ batchId, index, total, localPath, status: imported|uploaded|failed|error, asset?, error? }
+  onImportProgress: (cb) => {
+    const listener = (_e, msg) => cb(msg);
+    ipcRenderer.on('asset:importProgress', listener);
+    return () => ipcRenderer.removeListener('asset:importProgress', listener);
+  },
 
   // 生图（payload 含 jobId，配合 cancel(jobId) 定向停止）
   generate: (payload) => ipcRenderer.invoke('generate:run', payload),

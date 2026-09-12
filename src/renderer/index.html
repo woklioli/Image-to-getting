@@ -133,7 +133,7 @@
           <p class="page-desc">上传或选择参考图，填写提示词，调用渠道生图接口。生成结果自动保存到本地并记入历史素材。</p>
         </div>
 
-        <div class="card">
+        <div class="card model-bar">
           <div class="card-title">当前模型
             <span class="hint">在「设置」中添加/管理多个模型</span>
           </div>
@@ -143,107 +143,115 @@
           </div>
         </div>
 
-        <div class="card" id="refCard">
-          <div class="card-title">
-            参考图 <span class="req">*</span>
-            <span class="hint">支持多张（接口将以图片数组提交），PNG / JPEG / WebP / GIF，可直接拖入或 Ctrl/Cmd+V 粘贴</span>
-          </div>
-          <div class="ref-toolbar">
-            <button class="btn primary" id="btnUploadRef"><svg class="i" aria-hidden="true"><use href="#i-upload"/></svg> 上传图片</button>
-            <button class="btn" id="btnPickHistory"><svg class="i" aria-hidden="true"><use href="#i-archive"/></svg> 从历史素材选择</button>
-            <button class="btn ghost" id="btnClearRefs">清空</button>
-          </div>
-          <div class="thumb-grid" id="refList"></div>
-        </div>
-
-        <div class="card" id="maskCard">
-          <div class="card-title">
-            遮罩图 <span class="hint">可选，须为带 alpha 通道的 PNG，透明区域表示需要编辑的位置；也可拖到此处</span>
-          </div>
-          <div class="ref-toolbar">
-            <button class="btn" id="btnPickMask">选择遮罩图</button>
-            <button class="btn ghost" id="btnClearMask">清除遮罩</button>
-          </div>
-          <div class="thumb-grid" id="maskList"></div>
-        </div>
-
-        <div class="card">
-          <div class="card-title">提示词 <span class="req">*</span></div>
-          <textarea id="prompt" rows="4" maxlength="32000"
-            placeholder="描述所需的编辑效果，例如：把背景换成海边日落，保持人物不变…（最多 32000 字符）"></textarea>
-          <div class="char-count"><span id="promptCount">0</span> / 32000</div>
-        </div>
-
-        <div class="card">
-          <div class="card-title">生成参数</div>
-          <div class="form-grid">
-            <div class="field full-ratio">
-              <div class="field-label">
-                <span>尺寸 size</span>
-                <span class="hint">点选，或在下拉中查看原值</span>
+        <!-- 两栏工作台：左=素材与提示词，右=参数/生成/结果（.main 保持唯一滚动容器，勿给栏加 overflow） -->
+        <div class="workbench">
+          <div class="wb-col">
+            <div class="card" id="refCard">
+              <div class="card-title">
+                参考图 <span class="req">*</span>
+                <span class="hint">支持多张（接口将以图片数组提交），PNG / JPEG / WebP / GIF，可直接拖入或 Ctrl/Cmd+V 粘贴</span>
               </div>
-              <div id="ratioGrid"></div>
-              <select id="paramSize" class="ratio-fallback" aria-label="尺寸 size（备用下拉）">
-                <option value="auto">auto（自动）</option>
-                <option value="1024x1024" selected>1024x1024</option>
-                <option value="1024x1536">1024x1536（竖）</option>
-                <option value="1536x1024">1536x1024（横）</option>
-                <option value="1024x2048">1024x2048（竖长）</option>
-                <option value="2048x1024">2048x1024（横长）</option>
-                <option value="2048x2048">2048x2048</option>
-                <option value="688x2048">688x2048</option>
-                <option value="880x2048">880x2048</option>
-                <option value="1152x2048">1152x2048</option>
-                <option value="1360x2048">1360x2048</option>
-                <option value="1536x2048">1536x2048</option>
-                <option value="2048x688">2048x688</option>
-                <option value="2048x880">2048x880</option>
-                <option value="2048x1152">2048x1152</option>
-                <option value="2048x1360">2048x1360</option>
-                <option value="2048x1536">2048x1536</option>
-                <option value="2160x3840">2160x3840</option>
-                <option value="3840x2160">3840x2160</option>
-              </select>
+              <div class="ref-toolbar">
+                <button class="btn primary" id="btnUploadRef"><svg class="i" aria-hidden="true"><use href="#i-upload"/></svg> 上传图片</button>
+                <button class="btn" id="btnPickHistory"><svg class="i" aria-hidden="true"><use href="#i-archive"/></svg> 从历史素材选择</button>
+                <button class="btn ghost" id="btnClearRefs">清空</button>
+              </div>
+              <div class="thumb-grid" id="refList"></div>
             </div>
-            <label class="field">
-              <span>质量 quality</span>
-              <select id="paramQuality">
-                <option value="low" selected>low（低，快且省）</option>
-                <option value="medium">medium（中）</option>
-                <option value="high">high（高，慢且贵）</option>
-              </select>
-            </label>
-            <label class="field">
-              <span>数量 n（1-10）</span>
-              <input type="number" id="paramN" value="1" min="1" max="10" />
-            </label>
-            <label class="field">
-              <span>背景 background</span>
-              <select id="paramBackground">
-                <option value="auto" selected>auto（自动检测）</option>
-                <option value="opaque">opaque（不透明）</option>
-              </select>
-            </label>
-            <label class="field">
-              <span>输出格式 output_format</span>
-              <select id="paramFormat">
-                <option value="png" selected>png</option>
-                <option value="jpeg">jpeg</option>
-              </select>
-            </label>
+
+            <!-- 遮罩仍是独立容器：拖放/粘贴用 closest('#maskCard') 区分落点，只能嵌套不能拆散 -->
+            <div class="card card-sub" id="maskCard">
+              <div class="card-title">
+                遮罩图 <span class="hint">可选，须为带 alpha 通道的 PNG，透明区域表示需要编辑的位置；也可拖到此处</span>
+              </div>
+              <div class="ref-toolbar">
+                <button class="btn" id="btnPickMask">选择遮罩图</button>
+                <button class="btn ghost" id="btnClearMask">清除遮罩</button>
+              </div>
+              <div class="thumb-grid" id="maskList"></div>
+            </div>
+
+            <div class="card">
+              <div class="card-title">提示词 <span class="req">*</span></div>
+              <textarea id="prompt" rows="4" maxlength="32000"
+                placeholder="描述所需的编辑效果，例如：把背景换成海边日落，保持人物不变…（最多 32000 字符）"></textarea>
+              <div class="char-count"><span id="promptCount">0</span> / 32000</div>
+            </div>
           </div>
-        </div>
 
-        <div class="generate-bar">
-          <button class="btn big primary" id="btnGenerate"><svg class="i" aria-hidden="true"><use href="#i-bolt"/></svg> 开始生成</button>
-          <button class="btn big stop" id="genStop" hidden><svg class="i" aria-hidden="true"><use href="#i-stop"/></svg> 停止</button>
-          <div class="progress" id="genProgress" role="status"><span id="genStage"></span><span id="genElapsed" class="gen-elapsed"></span></div>
-        </div>
+          <div class="wb-col">
+            <div class="card">
+              <div class="card-title">生成参数</div>
+              <div class="form-grid">
+                <div class="field full-ratio">
+                  <div class="field-label">
+                    <span>尺寸 size</span>
+                    <span class="hint">点选，或在下拉中查看原值</span>
+                  </div>
+                  <div id="ratioGrid"></div>
+                  <select id="paramSize" class="ratio-fallback" aria-label="尺寸 size（备用下拉）">
+                    <option value="auto">auto（自动）</option>
+                    <option value="1024x1024" selected>1024x1024</option>
+                    <option value="1024x1536">1024x1536（竖）</option>
+                    <option value="1536x1024">1536x1024（横）</option>
+                    <option value="1024x2048">1024x2048（竖长）</option>
+                    <option value="2048x1024">2048x1024（横长）</option>
+                    <option value="2048x2048">2048x2048</option>
+                    <option value="688x2048">688x2048</option>
+                    <option value="880x2048">880x2048</option>
+                    <option value="1152x2048">1152x2048</option>
+                    <option value="1360x2048">1360x2048</option>
+                    <option value="1536x2048">1536x2048</option>
+                    <option value="2048x688">2048x688</option>
+                    <option value="2048x880">2048x880</option>
+                    <option value="2048x1152">2048x1152</option>
+                    <option value="2048x1360">2048x1360</option>
+                    <option value="2048x1536">2048x1536</option>
+                    <option value="2160x3840">2160x3840</option>
+                    <option value="3840x2160">3840x2160</option>
+                  </select>
+                </div>
+                <label class="field">
+                  <span>质量 quality</span>
+                  <select id="paramQuality">
+                    <option value="low" selected>low（低，快且省）</option>
+                    <option value="medium">medium（中）</option>
+                    <option value="high">high（高，慢且贵）</option>
+                  </select>
+                </label>
+                <label class="field">
+                  <span>数量 n（1-10）</span>
+                  <input type="number" id="paramN" value="1" min="1" max="10" />
+                </label>
+                <label class="field">
+                  <span>背景 background</span>
+                  <select id="paramBackground">
+                    <option value="auto" selected>auto（自动检测）</option>
+                    <option value="opaque">opaque（不透明）</option>
+                  </select>
+                </label>
+                <label class="field">
+                  <span>输出格式 output_format</span>
+                  <select id="paramFormat">
+                    <option value="png" selected>png</option>
+                    <option value="jpeg">jpeg</option>
+                  </select>
+                </label>
+              </div>
+            </div>
 
-        <div class="card" id="resultCard" style="display:none">
-          <div class="card-title">生成结果 <span class="hint" id="resultMeta"></span></div>
-          <div class="thumb-grid large" id="resultList"></div>
-        </div>
+            <div class="generate-bar">
+              <button class="btn big primary" id="btnGenerate"><svg class="i" aria-hidden="true"><use href="#i-bolt"/></svg> 开始生成</button>
+              <button class="btn big stop" id="genStop" hidden><svg class="i" aria-hidden="true"><use href="#i-stop"/></svg> 停止</button>
+              <div class="progress" id="genProgress" role="status"><span id="genStage"></span><span id="genElapsed" class="gen-elapsed"></span></div>
+            </div>
+
+            <div class="card" id="resultCard" style="display:none">
+              <div class="card-title">生成结果 <span class="hint" id="resultMeta"></span></div>
+              <div class="thumb-grid" id="resultList"></div>
+            </div>
+          </div><!-- /wb-col 右 -->
+        </div><!-- /workbench -->
       </section>
 
       <!-- ===== 历史素材页 ===== -->
@@ -282,45 +290,51 @@
           <p class="page-desc">配置全局渠道与多个模型。模型可单独填写 Base URL / API Key，留空则使用全局值。配置保存在本机，不会上传。</p>
         </div>
 
-        <div class="card form-card">
-          <div class="card-title"><svg class="i" aria-hidden="true"><use href="#i-link"/></svg> 全局渠道配置</div>
-          <label class="field">
-            <span>全局渠道 Base URL（模型留空时使用）</span>
-            <input type="text" id="cfgBaseUrl" placeholder="https://api.highwayapi.ai" />
-          </label>
-          <label class="field">
-            <span>全局 API Key（模型留空时使用）</span>
-            <input type="password" id="cfgApiKey" placeholder="sk-..." />
-          </label>
-          <label class="field">
-            <span>图片上传接口地址</span>
-            <input type="text" id="cfgUploadUrl" placeholder="https://tmpfile.link/api/upload" />
-            <small class="hint">参考图先上传到此图床换取 URL，再提交给生图接口</small>
-          </label>
-        </div>
-
-        <div class="card">
-          <div class="card-title">
-            <svg class="i" aria-hidden="true"><use href="#i-sparkle"/></svg> 模型列表
-            <span class="hint">单选一个为当前使用模型；每个模型可指向不同渠道/密钥</span>
-          </div>
-          <div id="modelList"></div>
-          <div class="ref-toolbar" style="margin-top:12px">
-            <button class="btn" id="btnAddModel"><svg class="i" aria-hidden="true"><use href="#i-plus"/></svg> 添加模型</button>
-          </div>
-        </div>
-
-        <div class="card form-card">
-          <div class="card-title"><svg class="i" aria-hidden="true"><use href="#i-sun"/></svg> 外观</div>
-          <div class="appearance-row">
-            <div class="field">
-              <span>主题</span>
-              <small class="hint">跟随系统会随 macOS / Windows 的深色设置自动切换</small>
+        <div class="workbench workbench-settings">
+          <div class="wb-col">
+            <div class="card form-card">
+              <div class="card-title"><svg class="i" aria-hidden="true"><use href="#i-link"/></svg> 全局渠道配置</div>
+              <label class="field">
+                <span>全局渠道 Base URL（模型留空时使用）</span>
+                <input type="text" id="cfgBaseUrl" placeholder="https://api.highwayapi.ai" />
+              </label>
+              <label class="field">
+                <span>全局 API Key（模型留空时使用）</span>
+                <input type="password" id="cfgApiKey" placeholder="sk-..." />
+              </label>
+              <label class="field">
+                <span>图片上传接口地址</span>
+                <input type="text" id="cfgUploadUrl" placeholder="https://tmpfile.link/api/upload" />
+                <small class="hint">参考图先上传到此图床换取 URL，再提交给生图接口</small>
+              </label>
             </div>
-            <div class="theme-seg" id="themeSegment" role="group" aria-label="主题模式">
-              <button id="btnThemeSystem" data-theme-val="system"><svg class="i" aria-hidden="true"><use href="#i-monitor"/></svg> 跟随系统</button>
-              <button id="btnThemeLight" data-theme-val="light"><svg class="i" aria-hidden="true"><use href="#i-sun"/></svg> 浅色</button>
-              <button id="btnThemeDark" data-theme-val="dark"><svg class="i" aria-hidden="true"><use href="#i-moon"/></svg> 深色</button>
+
+            <div class="card form-card">
+              <div class="card-title"><svg class="i" aria-hidden="true"><use href="#i-sun"/></svg> 外观</div>
+              <div class="appearance-row">
+                <div class="field">
+                  <span>主题</span>
+                  <small class="hint">跟随系统会随 macOS / Windows 的深色设置自动切换</small>
+                </div>
+                <div class="theme-seg" id="themeSegment" role="group" aria-label="主题模式">
+                  <button id="btnThemeSystem" data-theme-val="system"><svg class="i" aria-hidden="true"><use href="#i-monitor"/></svg> 跟随系统</button>
+                  <button id="btnThemeLight" data-theme-val="light"><svg class="i" aria-hidden="true"><use href="#i-sun"/></svg> 浅色</button>
+                  <button id="btnThemeDark" data-theme-val="dark"><svg class="i" aria-hidden="true"><use href="#i-moon"/></svg> 深色</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="wb-col">
+            <div class="card">
+              <div class="card-title">
+                <svg class="i" aria-hidden="true"><use href="#i-sparkle"/></svg> 模型列表
+                <span class="hint">单选一个为当前使用模型；每个模型可指向不同渠道/密钥</span>
+              </div>
+              <div id="modelList"></div>
+              <div class="ref-toolbar" style="margin-top:12px">
+                <button class="btn" id="btnAddModel"><svg class="i" aria-hidden="true"><use href="#i-plus"/></svg> 添加模型</button>
+              </div>
             </div>
           </div>
         </div>

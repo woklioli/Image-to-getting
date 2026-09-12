@@ -236,6 +236,11 @@
 /* ---------- 重置 ---------- */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
+/* [hidden] 是全项目通用状态协议（停止按钮/批量条/预览导航/弹窗…靠它显隐）。
+   UA 默认 [hidden]{display:none} 会被任何作者 display 规则（如 .btn 的
+   inline-flex）盖掉，必须 !important 兜底，勿逐个组件打补丁。 */
+[hidden] { display: none !important; }
+
 body {
   font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Segoe UI", sans-serif;
   background: var(--bg-page);
@@ -311,3 +316,10 @@ svg.i [stroke="none"] { stroke: none; }
     transition-duration: 0.01ms !important;
   }
 }
+
+/* ---------- 两栏工作台（调用模型页 / 设置页共用布局骨架） ----------
+   注意：栏内禁止加 overflow——.main 是唯一滚动容器（sticky 生成栏与
+   历史页 IntersectionObserver(root:.main) 都依赖它）。 */
+.workbench { display: grid; grid-template-columns: 1.45fr 1fr; gap: 16px; align-items: stretch; }   /* stretch：两栏等高，右栏内 sticky 生成栏才能贯穿整页吸底 */
+.wb-col { display: flex; flex-direction: column; min-width: 0; }   /* min-width:0 防长内容撑破列 */
+@media (max-width: 1080px) { .workbench { grid-template-columns: 1fr; } }

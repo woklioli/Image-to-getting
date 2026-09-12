@@ -1,11 +1,28 @@
 const fs = require('fs');
 const path = require('path');
 
+/** 绝对 URL（modelPath 允许直接写完整地址，如反代/自建域名，此时忽略 baseUrl 拼接） */
+function isAbsoluteUrl(p) {
+  return /^https?:\/\//i.test((p || '').trim());
+}
+
 /** 拼接 baseUrl 与模型路径 */
 function buildEndpoint(baseUrl, modelPath) {
+  if (isAbsoluteUrl(modelPath)) return modelPath.trim();
   const base = (baseUrl || '').replace(/\/+$/, '');
   const p = (modelPath || '').replace(/^\/+/, '');
   return `${base}/${p}`;
+}
+
+/** 本地图片文件 → FormData 可用的 Blob（按扩展名猜 mime，OpenAI 接受 png/jpeg/webp） */
+function imageBlob(localPath) {
+  const buffer = fs.readFileSync(localPath);
+  const ext = path.extname(localPath || '').toLowerCase().replace(/^\./, '');
+  const mime = ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg'
+    : ext === 'png' ? 'image/png'
+      : ext === 'webp' ? 'image/webp'
+        : 'application/octet-stream';
+  return new Blob([buffer], { type: mime });
 }
 
 /** 把外部取消 signal（可空）与内部超时合并：任一触发即 abort */
@@ -84,8 +101,9 @@ async function uploadFile(localPath, uploadUrl, opts = {}) {
       if (outerSignal && outerSignal.aborted) throw new Error('用户已取消');
       lastErr = e;
       const msg = e?.message || String(e);
-      // 内部超时（AbortError 且未被外部取消）也归为可重试的网络类错误
-      const retriable = /fetch failed|aborted|timeout|network|ENOTFOUND|ECONNRESET|ETIMEDOUT|EOF|socket/i.test(msg);
+      // 内部超时（AbortError 且未被外部取消）也归为可重试的网络类错误；
+      // 「无法解析/未找到链接」多为图床临时返回反爬限流 HTML 页（瞬态），同样值得重试
+      const retriable = /fetch failed|aborted|timeout|network|ENOTFOUND|ECONNRESET|ETIMEDOUT|EOF|socket|无法解析|未找到图片链接|just a moment|cloudflare/i.test(msg);
       if (attempt < 3 && retriable) {
         await sleep(1000 * attempt, outerSignal);   // 重试间隔也能被取消打断
         continue;
@@ -96,9 +114,25 @@ async function uploadFile(localPath, uploadUrl, opts = {}) {
   throw new Error(`图片上传到图床失败（已重试 3 次）：${lastErr?.message || lastErr}。请检查网络/代理后重试。`);
 }
 
-/** 素材没有 URL 时自动上传，返回可用于接口的图片链接 */
+/**
+ * 图床链接保鲜期：24 小时。
+ * tmpfile.link 等免登录图床的外链会过期，超龄素材调接口前必须重传换新 URL。
+ * 基准时间优先取 urlAt（该 URL 何时上传），缺省回退 createdAt（导入即上传的老数据）。
+ */
+const URL_TTL_MS = 24 * 60 * 60 * 1000;
+function isUrlStale(asset, nowMs = Date.now()) {
+  if (!asset || !asset.url) return true;   // 无 URL 视为需要上传
+  const t = Date.parse(asset.urlAt || asset.createdAt || '');
+  if (!Number.isFinite(t)) return true;    // 时间戳缺失/非法 → 保守重刷
+  return nowMs - t > URL_TTL_MS;
+}
+
+/**
+ * 确保素材有可用的图床 URL。
+ * @param {boolean} [opts.force] 强制重传（URL 超龄时的兜底刷新）
+ */
 async function ensureAssetUrl(asset, uploadUrl, onUploaded, opts = {}) {
-  if (asset.url) return asset.url;
+  if (asset.url && !opts.force) return asset.url;
   if (!asset.localPath) throw new Error('素材缺少本地文件，无法上传');
   const url = await uploadFile(asset.localPath, uploadUrl, opts);
   if (onUploaded) onUploaded(asset.id, url);
@@ -156,18 +190,86 @@ async function resolveImage(item, signal) {
   return { buffer: Buffer.from(item.replace(/\s/g, ''), 'base64'), ext: '.png', url: '' };
 }
 
+/** 常见渠道错误的人话翻译（成本由用户在渠道侧自担：余额/配额问题引导去渠道处理） */
+function friendlyApiError(status, text) {
+  if (/not enough balance|insufficient (balance|quota)|no balance/i.test(text)) {
+    return `渠道账户余额不足（HTTP ${status}），请前往渠道充值或更换有余额的 API Key`;
+  }
+  if (/invalid (api )?key|unauthorized|authentication/i.test(text) && status === 401) {
+    return 'API Key 无效或未授权（HTTP 401），请在「设置」中检查当前模型的密钥';
+  }
+  if (status === 429 || /rate limit|too many requests/i.test(text)) {
+    return `渠道限流（HTTP ${status}），稍等片刻再试`;
+  }
+  return null;
+}
+
+/** 出参统一处理：解析 { images } / { data }，逐张转 buffer；取消时带回部分结果 */
+async function parseImages(data, text, signal, requestBody, endpoint) {
+  const images = data.images || data.data || [];
+  if (!Array.isArray(images) || images.length === 0) {
+    throw new Error(`生图接口未返回图片：${text.slice(0, 500)}`);
+  }
+  const resolved = [];
+  for (const item of images) {
+    if (signal && signal.aborted) {
+      // 取消发生在结果图下载阶段：已解析出的部分照常返回，由调用方决定落盘
+      return { images: resolved, canceled: true, partial: true, requestBody, endpoint };
+    }
+    try {
+      resolved.push(await resolveImage(item, signal));
+    } catch (e) {
+      if (signal && signal.aborted) {
+        return { images: resolved, canceled: true, partial: true, requestBody, endpoint };
+      }
+      console.error('解析返回图片失败:', e.message);
+    }
+  }
+  if (resolved.length === 0) throw new Error('返回的图片全部解析失败');
+  return { images: resolved, requestBody, endpoint };
+}
+
+async function postJson(endpoint, body, apiKey, signal) {
+  const res = await fetch(endpoint, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${apiKey || ''}`
+    },
+    body: JSON.stringify(body),
+    signal
+  });
+  return res;
+}
+
 /**
- * 调用生图接口
+ * 调用生图接口。两种渠道模式：
+ *
+ * A. 聚合站编辑接口（默认，config.apiType !== 'openai'）：
+ *    JSON POST {baseUrl}/{modelPath}，body 带 image=图床URL 数组，至少 1 张参考图。
+ *
+ * B. OpenAI 官方接口（config.apiType === 'openai'）：
+ *    - 无参考图 → JSON POST …/images/generations，body { model, prompt, n, size, quality, background, output_format }
+ *    - 有参考图 → multipart POST …/images/edits，image[]/mask 直接传本地文件（无需图床）
+ *    出参 { data: [{ b64_json }] }，GPT image 系列永远只返回 base64。
+ *
  * @param {object} opts
- * @param {string[]} opts.imageUrls  参考图 URL 数组（必填至少 1 张）
- * @param {string}  [opts.maskUrl]   遮罩图 URL
+ * @param {string[]} [opts.imageUrls]   参考图 URL 数组（默认模式）
+ * @param {string}  [opts.maskUrl]      遮罩图 URL（默认模式）
+ * @param {string[]} [opts.imageFiles]  参考图本地文件路径数组（OpenAI 模式）
+ * @param {string}  [opts.maskFile]     遮罩图本地文件路径（OpenAI 模式）
  * @param {string}  opts.prompt
- * @param {object}  opts.params      { n, size, quality, background, output_format }
- * @param {object}  opts.config      { baseUrl, modelPath, apiKey }
- * @param {AbortSignal} [opts.signal] 取消信号：中止模型调用与结果图下载
+ * @param {object}  opts.params         { n, size, quality, background, output_format }
+ * @param {object}  opts.config         { baseUrl, modelPath, apiKey, apiType?, modelName? }
+ * @param {AbortSignal} [opts.signal]   取消信号：中止模型调用与结果图下载
  */
 async function generateImages(opts) {
-  const { imageUrls, maskUrl, prompt, params, config, signal } = opts;
+  const { imageUrls = [], maskUrl, imageFiles = [], maskFile, prompt, params, config, signal } = opts;
+
+  if (config.apiType === 'openai') {
+    return generateImagesOpenAI({ imageFiles, maskFile, prompt, params, config, signal });
+  }
+
   const endpoint = buildEndpoint(config.baseUrl, config.modelPath);
 
   const body = {
@@ -181,50 +283,80 @@ async function generateImages(opts) {
   };
   if (maskUrl) body.mask = maskUrl;
 
-  const res = await fetch(endpoint, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${config.apiKey || ''}`
-    },
-    body: JSON.stringify(body),
-    signal
-  });
-
+  const res = await postJson(endpoint, body, config.apiKey, signal);
   const text = await res.text();
   if (!res.ok) {
-    throw new Error(`生图接口调用失败 (HTTP ${res.status})：${text.slice(0, 800)}`);
+    throw new Error(friendlyApiError(res.status, text) || `生图接口调用失败 (HTTP ${res.status})：${text.slice(0, 800)}`);
   }
-
   let data;
   try {
     data = JSON.parse(text);
   } catch {
     throw new Error(`生图接口返回无法解析：${text.slice(0, 300)}`);
   }
-
-  const images = data.images || data.data || [];
-  if (!Array.isArray(images) || images.length === 0) {
-    throw new Error(`生图接口未返回图片：${text.slice(0, 500)}`);
-  }
-
-  const resolved = [];
-  for (const item of images) {
-    if (signal && signal.aborted) {
-      // 取消发生在结果图下载阶段：已解析出的部分照常返回，由调用方决定落盘
-      return { images: resolved, canceled: true, partial: true, requestBody: body, endpoint };
-    }
-    try {
-      resolved.push(await resolveImage(item, signal));
-    } catch (e) {
-      if (signal && signal.aborted) {
-        return { images: resolved, canceled: true, partial: true, requestBody: body, endpoint };
-      }
-      console.error('解析返回图片失败:', e.message);
-    }
-  }
-  if (resolved.length === 0) throw new Error('返回的图片全部解析失败');
-  return { images: resolved, requestBody: body, endpoint };
+  const out = await parseImages(data, text, signal, body, endpoint);
+  if (data.usage) out.usage = data.usage;
+  return out;
 }
 
-module.exports = { uploadFile, ensureAssetUrl, generateImages, buildEndpoint, resolveImage };
+/** OpenAI Images API：有参考图走 edits(multipart)，纯文生图走 generations(JSON) */
+async function generateImagesOpenAI({ imageFiles, maskFile, prompt, params, config, signal }) {
+  const hasRefs = imageFiles.length > 0;
+  // modelPath 留空 → 官方标准路径；写了（相对或绝对 URL）→ 以它为准，方便反代/聚合站兼容层
+  const endpoint = config.modelPath
+    ? buildEndpoint(config.baseUrl, config.modelPath)
+    : buildEndpoint(config.baseUrl, hasRefs ? 'images/edits' : 'images/generations');
+
+  const common = {
+    model: config.modelName || 'gpt-image-2',
+    prompt: prompt || '',
+    n: Math.min(10, Math.max(1, Number(params.n) || 1)),
+    size: params.size || '1024x1024',
+    quality: params.quality || 'low',
+    output_format: params.output_format || 'png'
+  };
+
+  let res, requestBody;
+  if (hasRefs) {
+    // edits：multipart/form-data，本地文件直传（官方不接受 URL，也不支持 background 参数）
+    const form = new FormData();
+    form.append('model', common.model);
+    form.append('prompt', common.prompt);
+    form.append('n', String(common.n));
+    form.append('size', common.size);
+    form.append('quality', common.quality);
+    form.append('output_format', common.output_format);
+    for (const p of imageFiles) {
+      form.append('image[]', imageBlob(p), path.basename(p) || 'image.png');
+    }
+    if (maskFile) form.append('mask', imageBlob(maskFile), path.basename(maskFile) || 'mask.png');
+    requestBody = { ...common, image: `[${imageFiles.length} 个本地文件]` };
+    res = await fetch(endpoint, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${config.apiKey || ''}` },   // multipart 边界由 fetch 自动生成
+      body: form,
+      signal
+    });
+  } else {
+    // background 仅在用户显式选择时发送（官方默认即 auto；部分 OpenAI 兼容网关不认多余参数）
+    requestBody = { ...common };
+    if (params.background && params.background !== 'auto') requestBody.background = params.background;
+    res = await postJson(endpoint, requestBody, config.apiKey, signal);
+  }
+
+  const text = await res.text();
+  if (!res.ok) {
+    throw new Error(friendlyApiError(res.status, text) || `生图接口调用失败 (HTTP ${res.status})：${text.slice(0, 800)}`);
+  }
+  let data;
+  try {
+    data = JSON.parse(text);
+  } catch {
+    throw new Error(`生图接口返回无法解析：${text.slice(0, 300)}`);
+  }
+  const out = await parseImages(data, text, signal, requestBody, endpoint);
+  if (data.usage) out.usage = data.usage;   // { input_tokens, output_tokens, total_tokens, ... }
+  return out;
+}
+
+module.exports = { uploadFile, ensureAssetUrl, generateImages, buildEndpoint, resolveImage, isUrlStale, URL_TTL_MS };

@@ -2,7 +2,7 @@ const { app, BrowserWindow, ipcMain, dialog, shell, clipboard } = require('elect
 const fs = require('fs');
 const path = require('path');
 const store = require('./store');
-const { uploadFile, ensureAssetUrl, generateImages } = require('./api');
+const { uploadFile, ensureAssetUrl, generateImages, buildEndpoint, isUrlStale } = require('./api');
 
 /* ---------- 生成作业表：jobId -> AbortController，支持「停止生成」 ---------- */
 const genJobs = new Map();
@@ -78,11 +78,18 @@ function registerIpc(hooks = {}) {
     return p && fs.existsSync(p) ? p : null;
   });
 
-  // 导入本地文件为上传素材（复制进应用目录，自动上传图床取 URL）
-  ipcMain.handle('asset:importFiles', async (_e, filePaths) => {
+  // 导入本地文件为上传素材（复制进应用目录，自动上传图床取 URL）。
+  // batchId（可选）：渲染层传入，用于把逐张进度回推到对应的占位卡（asset:importProgress）。
+  ipcMain.handle('asset:importFiles', async (event, filePaths, batchId) => {
     const config = store.getConfig();
+    const files = filePaths || [];
+    const push = (payload) => {
+      if (!batchId || event.sender.isDestroyed()) return;
+      event.sender.send('asset:importProgress', { batchId, total: files.length, ...payload });
+    };
     const results = [];
-    for (const fp of filePaths || []) {
+    for (let i = 0; i < files.length; i++) {
+      const fp = files[i];
       let record;
       try {
         const stat = fs.statSync(fp);
@@ -90,29 +97,35 @@ function registerIpc(hooks = {}) {
         record.size = stat.size;
       } catch (e) {
         results.push({ ok: false, fileName: path.basename(fp), error: e.message });
+        push({ index: i, localPath: fp, status: 'error', error: e.message });
         continue;
       }
+      // 先入库再上传：卡片立即有本地缩略图可展示，上传成败都不丢记录
+      record = store.addAsset(record);
+      push({ index: i, localPath: fp, status: 'imported', asset: record });
       try {
         const url = await uploadFile(record.localPath, config.uploadUrl);
-        record = store.addAsset({ ...record, url });
+        record = store.updateAsset(record.id, { url, urlAt: new Date().toISOString() });
         results.push({ ok: true, asset: record });
+        push({ index: i, localPath: fp, status: 'uploaded', asset: record });
       } catch (e) {
         // 图床失败也保留本地记录，之后可重试上传
-        record = store.addAsset(record);
         results.push({ ok: true, asset: record, warning: e.message });
+        push({ index: i, localPath: fp, status: 'failed', asset: record, error: e.message });
       }
     }
     return results;
   });
 
-  // 为缺少 URL 的素材补传图床
+  // 确保素材有可用图床 URL：缺失或超过 24h（图床外链会过期）自动重传刷新
   ipcMain.handle('asset:ensureUploaded', async (_e, id) => {
     const config = store.getConfig();
     const asset = store.getAsset(id);
     if (!asset) throw new Error('素材不存在');
+    const force = isUrlStale(asset);
     const url = await ensureAssetUrl(asset, config.uploadUrl, (aid, u) =>
-      store.updateAsset(aid, { url: u })
-    );
+      store.updateAsset(aid, { url: u, urlAt: new Date().toISOString() })
+    , { force });
     return store.getAsset(id);
   });
 
@@ -182,21 +195,27 @@ function registerIpc(hooks = {}) {
       const modelPath = (model.modelPath || '').trim();
       const apiKey = (model.apiKey || config.apiKey || '').trim();
       if (!apiKey) throw new Error('请先在「设置」中填写 API Key（全局或当前模型）');
-      if (!baseUrl || !modelPath) throw new Error('当前模型缺少渠道 Base URL 或接口路径，请在「设置」中检查');
+      // OpenAI 官方模式：modelPath 可留空（自动走 images/generations|edits），其余模式仍必填
+      const isOpenAI = model.apiType === 'openai';
+      if (!baseUrl || (!modelPath && !isOpenAI)) throw new Error('当前模型缺少渠道 Base URL 或接口路径，请在「设置」中检查');
 
-      if (refIds.length === 0) throw new Error('请至少添加一张参考图');
-      const ctx = { model, modelPath, endpoint: `${baseUrl.replace(/\/+$/, '')}/${modelPath.replace(/^\/+/, '')}`, refAssets: [], maskAsset: null };
+      // 默认（聚合站编辑）模式必须至少一张参考图；OpenAI 模式允许纯文生图
+      if (refIds.length === 0 && !isOpenAI) throw new Error('请至少添加一张参考图');
+      const ctx = { model, modelPath, endpoint: buildEndpoint(baseUrl, modelPath), refAssets: [], maskAsset: null };
 
-      // 1. 确保参考图都有 URL
+      // 1. 确保参考图可用：默认模式要图床 URL；OpenAI 模式 edits 直接读本地文件，无需上传
       for (const id of refIds) {
         if (signal.aborted) throw canceled();
         const asset = store.getAsset(id);
         if (!asset) throw new Error(`参考图素材不存在：${id}`);
-        progress(`正在准备参考图 ${ctx.refAssets.length + 1}/${refIds.length}…`);
-        if (!asset.url) {
-          const url = await guard(uploadFile(asset.localPath, config.uploadUrl, { signal }));
-          store.updateAsset(asset.id, { url });
-          asset.url = url;
+        if (!isOpenAI) {
+          progress(`正在准备参考图 ${ctx.refAssets.length + 1}/${refIds.length}…`);
+          // 兜底：无 URL 或 URL 超过 24h（图床外链会过期）→ 重传换新链接
+          if (isUrlStale(asset)) {
+            const url = await guard(uploadFile(asset.localPath, config.uploadUrl, { signal }));
+            store.updateAsset(asset.id, { url, urlAt: new Date().toISOString() });
+            asset.url = url;
+          }
         }
         ctx.refAssets.push(asset);
       }
@@ -205,10 +224,10 @@ function registerIpc(hooks = {}) {
       if (payload.maskAssetId) {
         if (signal.aborted) throw canceled();
         ctx.maskAsset = store.getAsset(payload.maskAssetId);
-        if (ctx.maskAsset && !ctx.maskAsset.url) {
+        if (ctx.maskAsset && !isOpenAI && isUrlStale(ctx.maskAsset)) {
           progress('正在上传遮罩图…');
           const url = await guard(uploadFile(ctx.maskAsset.localPath, config.uploadUrl, { signal }));
-          store.updateAsset(ctx.maskAsset.id, { url });
+          store.updateAsset(ctx.maskAsset.id, { url, urlAt: new Date().toISOString() });
           ctx.maskAsset.url = url;
         }
       }
@@ -220,9 +239,11 @@ function registerIpc(hooks = {}) {
         res = await generateImages({
           imageUrls: ctx.refAssets.map(a => a.url),
           maskUrl: ctx.maskAsset ? ctx.maskAsset.url : null,
+          imageFiles: ctx.refAssets.map(a => a.localPath),
+          maskFile: ctx.maskAsset ? ctx.maskAsset.localPath : null,
           prompt: payload.prompt || '',
           params: payload.params || {},
-          config: { baseUrl, modelPath, apiKey },
+          config: { baseUrl, modelPath, apiKey, apiType: model.apiType, modelName: model.modelName },
           signal
         });
       } catch (e) {
@@ -231,11 +252,14 @@ function registerIpc(hooks = {}) {
       }
 
       // 4. 落盘（接口出图后不再中断：即使已取消，也把拿到的部分图保存下来）
+      ctx.endpoint = res.endpoint || ctx.endpoint;   // 历史详情展示实际调用的端点（OpenAI 自动路径场景）
       if (res.canceled) {
         if (res.images.length) persist(ctx, res.images);
         throw canceled();
       }
-      return persist(ctx, res.images);
+      const out = persist(ctx, res.images);
+      if (res.usage) out.usage = res.usage;   // OpenAI 等渠道的 tokens 用量，渲染层展示
+      return out;
     } catch (e) {
       // 取消不走 reject：Error 的自定义属性无法可靠穿过 IPC 结构化克隆，
       // 用返回值 {canceled:true} 表达，渲染层据此显示灰色「已取消」并展示已落盘的部分结果。
