@@ -13,6 +13,13 @@ const { pathToFileURL } = require('url');
 const SRC = '/tmp/test-ref.png';
 
 app.whenReady().then(async () => {
+  // macOS 会定期清理 /tmp：缺 fixture 必须当场报错退出。否则 statSync 抛错后
+  // 无人调 app.exit，进程会静默挂死（表现为「跑了十分钟，一行输出都没有」）。
+  if (!fs.existsSync(SRC)) {
+    console.error(`FAIL: 缺少测试图片 ${SRC}，先重建：cp assets/icon.png ${SRC}`);
+    app.exit(1);
+    return;
+  }
   // 与正式应用（electron .）使用同一个用户数据目录
   app.setPath('userData', path.join(app.getPath('appData'), 'ai-image-studio'));
   store.init();
@@ -49,4 +56,7 @@ app.whenReady().then(async () => {
 
   console.log('\n✅ 上传流程测试完成，该素材已出现在应用「历史素材-上传图片」中');
   app.exit(0);
+}).catch(e => {   // 任何未捕获异常都要退出，绝不静默挂死（cron/CI 下会被误判为「还在跑」）
+  console.error('FAIL:', e.stack || e.message);
+  app.exit(1);
 });

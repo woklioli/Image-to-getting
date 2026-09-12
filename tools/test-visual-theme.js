@@ -1,7 +1,7 @@
 /**
  * 阶段 5 回归测试：视觉重做 + 深色模式 + 三态主题
- * 无头环境 prefers-color-scheme 恒为 light，因此「跟随系统」分支不可测，
- * 这里验证可测的部分：token 生效、data-theme 三态、主进程底色同步、
+ * 「跟随系统」分支不可测（取值取决于开发机外观），因此本测试把 themeSource 钉死为 light
+ * 作为浅色基线，再验证可测的部分：token 生效、data-theme 三态、主进程底色同步、
  * 图标精灵无 emoji 残留、比例选择器与 select 双向一致、弹窗 a11y（inert/Esc/焦点）。
  * 用法：npx electron tools/test-visual-theme.js
  */
@@ -52,6 +52,10 @@ const cs = (win, sel, prop) => win.webContents.executeJavaScript(
      return el ? getComputedStyle(el)[${JSON.stringify(prop)}] : null; })()`);
 
 app.whenReady().then(async () => {
+  // 浅色基线必须显式钉死：prefers-color-scheme 跟随开发机外观，开发机开着深色模式时
+  // 初始 body 就是深色，浅色断言（V1 accent / V3 翻转 / V5 对比）会集体假红。
+  // 本测试不加载 main.js，故这里设的 themeSource 不会被应用自身的主题逻辑覆盖。
+  nativeTheme.themeSource = 'light';
   const store = require('../src/main/store');
   const { registerIpc } = require('../src/main/ipc');
   store.init();
